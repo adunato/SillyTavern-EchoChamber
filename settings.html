@@ -5,334 +5,425 @@
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <!-- Header Section -->
-            <div
-                style="margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid var(--SmartThemeQuoteColor); background: rgba(0,0,0,0.15); border-radius: 0 4px 4px 0; font-size: 0.9em; opacity: 0.85;">
-                Fake chat feed that reacts dynamically to conversation context.
-            </div>
 
-            <!-- Global Enable -->
-            <label class="checkbox_label" for="discord_enabled"
-                style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 12px;">
-                <input id="discord_enabled" type="checkbox" class="checkbox">
-                <span style="font-weight: bold;">Enable EchoChamber</span>
-            </label>
+            <div class="ec-s-panel">
 
-            <hr style="margin: 10px 0; opacity: 0.2;">
-
-            <!-- Generation Engine Section -->
-            <div style="margin-bottom: 16px;">
-                <h4
-                    style="margin: 0 0 8px 0; font-size: 0.8em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px;">
-                    <i class="fa-solid fa-microchip"></i> Generation Engine
-                </h4>
-
-                <select id="discord_source" class="text_pole" style="width: 100%; margin-bottom: 8px;">
-                    <option value="default">Default (Main API)</option>
-                    <option value="profile">Connection Profile (Recommended)</option>
-                    <option value="ollama">Ollama (Local)</option>
-                    <option value="openai">OpenAI Compatible</option>
-                </select>
-
-                <!-- Provider: Ollama -->
-                <div id="discord_ollama_settings"
-                    style="display:none; padding: 10px; border-left: 3px solid rgba(0,255,0,0.4); background: rgba(0,255,0,0.03); border-radius: 0 6px 6px 0; margin-top: 4px;">
-                    <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 8px; opacity: 0.9;">
-                        <i class="fa-solid fa-terminal"></i> Ollama
-                    </div>
-                    <input id="discord_url" type="text" class="text_pole" placeholder="http://localhost:11434"
-                        title="Ollama API endpoint" style="margin-bottom: 6px; font-size: 0.85em;">
-                    <select id="discord_model_select" class="text_pole" style="font-size: 0.85em;"></select>
-                    <div id="discord_ollama_status" style="font-size: 0.8em; margin-top: 6px;"></div>
+                <!-- Description -->
+                <div class="ec-s-description">
+                    Fake chat feed that reacts dynamically to conversation context.
                 </div>
 
-                <!-- Provider: OpenAI Compatible -->
-                <div id="discord_openai_settings"
-                    style="display:none; padding: 10px; border-left: 3px solid rgba(0,180,255,0.4); background: rgba(0,180,255,0.03); border-radius: 0 6px 6px 0; margin-top: 4px;">
-                    <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 8px; opacity: 0.9;">
-                        <i class="fa-solid fa-cloud"></i> OpenAI Compatible
-                    </div>
-                    <select id="discord_openai_preset" class="text_pole" style="margin-bottom: 6px; font-size: 0.85em;">
-                        <option value="custom">Custom</option>
-                        <option value="lmstudio">LM Studio (:1234)</option>
-                        <option value="kobold">KoboldCPP (:5001)</option>
-                        <option value="textgen">TextGenWebUI (:5000)</option>
-                        <option value="vllm">vLLM (:8000)</option>
-                    </select>
-                    <input id="discord_openai_url" type="text" class="text_pole" placeholder="http://localhost:1234/v1"
-                        title="API endpoint URL" style="margin-bottom: 6px; font-size: 0.85em;">
-                    <input id="discord_openai_key" type="password" class="text_pole" placeholder="API Key (Optional)"
-                        title="API Key (if required)" style="margin-bottom: 6px; font-size: 0.85em;">
-                    <input id="discord_openai_model" type="text" class="text_pole" placeholder="Model name"
-                        title="Model identifier" style="font-size: 0.85em;">
-                </div>
+                <!-- Global Enable -->
+                <label class="ec-s-toggle-row ec-s-global-enable" for="discord_enabled">
+                    <input id="discord_enabled" type="checkbox" class="checkbox">
+                    <span class="ec-s-label-text ec-s-label-bold">Enable EchoChamber</span>
+                </label>
 
-                <!-- Provider: Connection Profile -->
-                <div id="discord_profile_settings"
-                    style="display:none; padding: 10px; border-left: 3px solid rgba(100,150,255,0.4); background: rgba(100,150,255,0.03); border-radius: 0 6px 6px 0; margin-top: 4px;">
-                    <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 8px; opacity: 0.9;">
-                        <i class="fa-solid fa-link"></i> Connection Profile
-                    </div>
-                    <select id="discord_preset_select" class="text_pole" style="font-size: 0.85em;"></select>
-                    <div style="font-size: 0.75em; opacity: 0.6; margin-top: 6px;">
-                        <i class="fa-solid fa-shield-halved"></i> Uses your existing ST credentials securely.
-                    </div>
-                </div>
-            </div>
-
-            <hr style="margin: 10px 0; opacity: 0.2;">
-
-            <!-- Content Settings Section -->
-            <div style="margin-bottom: 16px;">
-                <h4
-                    style="margin: 0 0 8px 0; font-size: 0.8em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px;">
-                    <i class="fa-solid fa-sliders"></i> Content Settings
-                </h4>
-
-                <!-- Row 1: Style + Position -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-                    <div>
-                        <label for="discord_style"
-                            style="display: block; font-size: 0.8em; margin-bottom: 3px; opacity: 0.8;">
-                            <i class="fa-solid fa-palette" style="width: 14px;"></i> Style
-                        </label>
-                        <select id="discord_style" class="text_pole" style="width: 100%; font-size: 0.85em;">
-                            <option value="twitch">Discord/Twitch</option>
-                            <option value="verbose">Thoughtful</option>
-                            <option value="twitter">Twitter/X</option>
-                            <option value="news">Breaking News</option>
-                            <option value="mst3k">MST3K</option>
-                            <option value="nsfw_ava">Ava NSFW</option>
-                            <option value="nsfw_kai">Kai NSFW</option>
-                            <option value="hypebot">HypeBot</option>
-                            <option value="doomscrollers">Doomscrollers</option>
-                            <option value="dumbanddumber">Dumb & Dumber</option>
-                            <option value="ao3wattpad">AO3 / Wattpad</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="discord_position"
-                            style="display: block; font-size: 0.8em; margin-bottom: 3px; opacity: 0.8;">
-                            <i class="fa-solid fa-arrows-up-down-left-right" style="width: 14px;"></i> Position
-                        </label>
-                        <select id="discord_position" class="text_pole" style="width: 100%; font-size: 0.85em;">
-                            <option value="bottom">Bottom</option>
-                            <option value="top">Top</option>
-                            <option value="left">Left</option>
-                            <option value="right">Right</option>
-                            <option value="popout">↗ Pop Out</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Row 2: Users + Font + Opacity -->
-                <div
-                    style="display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 8px; margin-bottom: 12px; align-items: end;">
-                    <div>
-                        <label for="discord_user_count"
-                            style="display: block; font-size: 0.8em; margin-bottom: 3px; opacity: 0.8;">
-                            <i class="fa-solid fa-users" style="width: 14px;"></i> Users
-                        </label>
-                        <input id="discord_user_count" type="number" class="text_pole" min="1" max="20" value="5"
-                            style="width: 100%; font-size: 0.85em;" title="Number of fake users (1-20)">
-                    </div>
-                    <div>
-                        <label for="discord_font_size"
-                            style="display: block; font-size: 0.8em; margin-bottom: 3px; opacity: 0.8;">
-                            <i class="fa-solid fa-font" style="width: 14px;"></i> Font
-                        </label>
-                        <input id="discord_font_size" type="number" class="text_pole" min="8" max="32" value="15"
-                            style="width: 100%; font-size: 0.85em;" title="Font size in pixels">
-                    </div>
-                    <div>
-                        <label style="display: block; font-size: 0.8em; margin-bottom: 3px; opacity: 0.8;">
-                            <i class="fa-solid fa-eye" style="width: 14px;"></i> Opacity
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <input id="discord_opacity" type="range" class="slider" min="10" max="100" value="80"
-                                step="5" style="flex-grow: 1;">
-                            <span id="discord_opacity_val"
-                                style="font-size: 0.8em; min-width: 32px; text-align: right;">80%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Auto-update On Messages -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
-                    <label class="checkbox_label" for="discord_auto_update"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input id="discord_auto_update" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.9em;"><i class="fa-solid fa-sync"
-                                style="width: 16px; opacity: 0.8;"></i> Auto-update On Messages</span>
-                    </label>
-                </div>
-
-                <!-- Include Chat History -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
-                    <label class="checkbox_label" for="discord_include_user"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input id="discord_include_user" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.9em;"><i class="fa-solid fa-comments"
-                                style="width: 16px; opacity: 0.8;"></i> Include Chat History</span>
-                    </label>
-                    <div id="discord_context_depth_container"
-                        style="margin-top: 8px; margin-left: 24px; display: none;">
-                        <label for="discord_context_depth"
-                            style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
-                            Context Depth:
-                        </label>
-                        <input id="discord_context_depth" type="number" class="text_pole" min="2" max="20" value="4"
-                            style="width: 80px; font-size: 0.85em;" title="Number of messages to include">
-                    </div>
-                </div>
-
-                <!-- Include Past Generated EchoChambers -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
-                    <label class="checkbox_label" for="discord_include_past_echo"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input id="discord_include_past_echo" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.9em;"><i class="fa-solid fa-layer-group"
-                                style="width: 16px; opacity: 0.8;"></i> Include Past Generated EchoChambers</span>
-                    </label>
-                    <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
-                        Includes previous commentary in the prompt for new generations
-                    </div>
-                </div>
-
-                <!-- Include Context Options -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
-                    <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 8px; opacity: 0.9;">
-                        <i class="fa-solid fa-file-lines"></i> Include in Context
-                    </div>
-                    <label class="checkbox_label" for="discord_include_persona"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
-                        <input id="discord_include_persona" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.85em;"><i class="fa-solid fa-face-smile"
-                                style="width: 14px; opacity: 0.8;"></i> Persona</span>
-                    </label>
-                    <label class="checkbox_label" for="discord_include_character_description"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
-                        <input id="discord_include_character_description" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.85em;"><i class="fa-solid fa-address-card"
-                                style="width: 14px; opacity: 0.8;"></i> Character Description(s)</span>
-                    </label>
-                    <label class="checkbox_label" for="discord_include_summary"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
-                        <input id="discord_include_summary" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.85em;"><i class="fa-solid fa-scroll"
-                                style="width: 14px; opacity: 0.8;"></i> Summary (from Summarize ext.)</span>
-                    </label>
-                    <label class="checkbox_label" for="discord_include_world_info"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input id="discord_include_world_info" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.85em;"><i class="fa-solid fa-globe"
-                                style="width: 14px; opacity: 0.8;"></i> World Info / Lorebook</span>
-                    </label>
-                    <div style="margin-top: 6px; margin-left: 22px; font-size: 0.75em; opacity: 0.6;">
-                        Additional context to include when generating the chat feed
-                    </div>
-                </div>
-
-                <!-- Livestream Mode -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px;">
-                    <label class="checkbox_label" for="discord_livestream"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input id="discord_livestream" type="checkbox" class="checkbox">
-                        <span style="font-size: 0.9em;"><i class="fa-solid fa-tower-broadcast"
-                                style="width: 16px; opacity: 0.8;"></i> Livestream</span>
-                    </label>
-                    <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
-                        Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages
-                        appear in the panel over time
-                    </div>
-
-                    <!-- Livestream Settings -->
-                    <div id="discord_livestream_settings" style="margin-top: 10px; margin-left: 24px; display: none;">
-                        <!-- Batch Size -->
-                        <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_batch_size"
-                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
-                                <i class="fa-solid fa-boxes-stacked" style="width: 14px;"></i> Batch Size:
-                            </label>
-                            <input id="discord_livestream_batch_size" type="number" class="text_pole" min="5" max="50"
-                                value="20" style="width: 80px; font-size: 0.85em;"
-                                title="Number of messages to generate per batch">
-                        </div>
-
-                        <!-- Wait Time Range -->
-                        <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_min_wait"
-                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
-                                <i class="fa-solid fa-clock" style="width: 14px;"></i> Minimum Wait Time (seconds):
-                            </label>
-                            <input id="discord_livestream_min_wait" type="number" class="text_pole" min="1" max="120"
-                                value="5" style="width: 80px; font-size: 0.85em;"
-                                title="Minimum seconds to wait between messages">
-                        </div>
-
-                        <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_max_wait"
-                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
-                                <i class="fa-solid fa-clock" style="width: 14px;"></i> Maximum Wait Time (seconds):
-                            </label>
-                            <input id="discord_livestream_max_wait" type="number" class="text_pole" min="1" max="300"
-                                value="60" style="width: 80px; font-size: 0.85em;"
-                                title="Maximum seconds to wait between messages">
-                        </div>
-
-                        <!-- Generation Mode -->
-                        <div style="margin-bottom: 8px;">
-                            <label style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 6px;">
-                                <i class="fa-solid fa-clapperboard" style="width: 14px;"></i> Generation Mode:
-                            </label>
-                            <label class="checkbox_label"
-                                style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
-                                <input type="radio" name="discord_livestream_mode" value="manual" class="radio"
-                                    id="discord_livestream_manual" checked>
-                                <span style="font-size: 0.85em;">Manual Upon Clicking Regenerate Chat</span>
-                            </label>
-                            <label class="checkbox_label"
-                                style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
-                                <input type="radio" name="discord_livestream_mode" value="onMessage" class="radio"
-                                    id="discord_livestream_onmessage">
-                                <span style="font-size: 0.85em;">Generate Upon Receiving A New Message</span>
-                            </label>
-                            <label class="checkbox_label"
-                                style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="discord_livestream_mode" value="onComplete" class="radio"
-                                    id="discord_livestream_oncomplete">
-                                <span style="font-size: 0.85em;">Generate A New Batch After The Last One Finishes</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <hr style="margin: 10px 0; opacity: 0.2;">
-
-            <!-- Style Manager Section -->
-            <div>
-                <h4
-                    style="margin: 0 0 8px 0; font-size: 0.8em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px;">
-                    <i class="fa-solid fa-folder-tree"></i> Style Manager
-                </h4>
-
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <button id="discord_open_style_editor" class="menu_button">
-                        <i class="fa-solid fa-palette"></i> Manage
+                <!-- ═══ GENERATION ENGINE ═══ -->
+                <div class="ec-s-section">
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-microchip"></i> Generation Engine
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
                     </button>
-                    <button id="discord_import_btn" class="menu_button">
-                        <i class="fa-solid fa-file-import"></i> Import
-                    </button>
-                </div>
-                <div
-                    style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
-                    v4.2.1
-                </div>
-                <input type="file" id="discord_import_file" accept=".md" style="display:none;">
-            </div>
+                    <div class="ec-s-section-body" hidden>
 
-        </div>
-    </div>
-</div>
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label" for="discord_source">
+                                <i class="fa-solid fa-plug"></i> Source
+                            </label>
+                            <select id="discord_source" class="text_pole ec-s-select">
+                                <option value="default">Default (Main API)</option>
+                                <option value="profile">Connection Profile (Recommended)</option>
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="openai">OpenAI Compatible</option>
+                            </select>
+                        </div>
+
+                        <!-- Provider: Ollama -->
+                        <div id="discord_ollama_settings" class="ec-s-sub-panel ec-s-sub-panel--ollama"
+                            style="display:none">
+                            <div class="ec-s-sub-panel-title">
+                                <i class="fa-solid fa-terminal"></i> Ollama
+                            </div>
+                            <input id="discord_url" type="text" class="text_pole ec-s-input"
+                                placeholder="http://localhost:11434" title="Ollama API endpoint">
+                            <select id="discord_model_select" class="text_pole ec-s-select"></select>
+                            <div id="discord_ollama_status" class="ec-s-status-note"></div>
+                        </div>
+
+                        <!-- Provider: OpenAI Compatible -->
+                        <div id="discord_openai_settings" class="ec-s-sub-panel ec-s-sub-panel--openai"
+                            style="display:none">
+                            <div class="ec-s-sub-panel-title">
+                                <i class="fa-solid fa-cloud"></i> OpenAI Compatible
+                            </div>
+                            <select id="discord_openai_preset" class="text_pole ec-s-select">
+                                <option value="custom">Custom</option>
+                                <option value="lmstudio">LM Studio (:1234)</option>
+                                <option value="kobold">KoboldCPP (:5001)</option>
+                                <option value="textgen">TextGenWebUI (:5000)</option>
+                                <option value="vllm">vLLM (:8000)</option>
+                            </select>
+                            <input id="discord_openai_url" type="text" class="text_pole ec-s-input"
+                                placeholder="http://localhost:1234/v1" title="API endpoint URL">
+                            <input id="discord_openai_key" type="password" class="text_pole ec-s-input"
+                                placeholder="API Key (Optional)" title="API Key (if required)">
+                            <input id="discord_openai_model" type="text" class="text_pole ec-s-input"
+                                placeholder="Model name" title="Model identifier">
+                        </div>
+
+                        <!-- Provider: Connection Profile -->
+                        <div id="discord_profile_settings" class="ec-s-sub-panel ec-s-sub-panel--profile"
+                            style="display:none">
+                            <div class="ec-s-sub-panel-title">
+                                <i class="fa-solid fa-link"></i> Connection Profile
+                            </div>
+                            <select id="discord_preset_select" class="text_pole ec-s-select"></select>
+                            <div class="ec-s-hint">
+                                <i class="fa-solid fa-shield-halved"></i> Uses your existing ST credentials securely.
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ═══ DISPLAY ═══ -->
+                <div class="ec-s-section" data-default-open>
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-sliders"></i> Display
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="ec-s-section-body" hidden>
+
+                        <!-- Style + Position -->
+                        <div class="ec-s-grid-2">
+                            <div class="ec-s-field-group">
+                                <label class="ec-s-field-label" for="discord_style">
+                                    <i class="fa-solid fa-palette"></i> Style
+                                </label>
+                                <select id="discord_style" class="text_pole ec-s-select">
+                                    <option value="twitch">Discord/Twitch</option>
+                                    <option value="verbose">Thoughtful</option>
+                                    <option value="twitter">Twitter/X</option>
+                                    <option value="news">Breaking News</option>
+                                    <option value="mst3k">MST3K</option>
+                                    <option value="nsfw_ava">Ava NSFW</option>
+                                    <option value="nsfw_kai">Kai NSFW</option>
+                                    <option value="hypebot">HypeBot</option>
+                                    <option value="doomscrollers">Doomscrollers</option>
+                                    <option value="darkroast">Dark Roast</option>
+                                    <option value="dumbanddumber">Dumb &amp; Dumber</option>
+                                    <option value="ao3wattpad">AO3 / Wattpad</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="ec-s-field-group">
+                                <label class="ec-s-field-label" for="discord_position">
+                                    <i class="fa-solid fa-arrows-up-down-left-right"></i> Position
+                                </label>
+                                <select id="discord_position" class="text_pole ec-s-select">
+                                    <option value="bottom">Bottom</option>
+                                    <option value="top">Top</option>
+                                    <option value="left">Left</option>
+                                    <option value="right">Right</option>
+                                    <option value="popout">↗ Pop Out</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Users + Font + Opacity -->
+                        <div class="ec-s-grid-3">
+                            <div class="ec-s-field-group">
+                                <label class="ec-s-field-label" for="discord_user_count">
+                                    <i class="fa-solid fa-users"></i> Users
+                                </label>
+                                <input id="discord_user_count" type="number" class="text_pole ec-s-input-num" min="1"
+                                    max="20" value="5" title="Number of fake users (1-20)">
+                            </div>
+                            <div class="ec-s-field-group">
+                                <label class="ec-s-field-label" for="discord_font_size">
+                                    <i class="fa-solid fa-font"></i> Font (px)
+                                </label>
+                                <input id="discord_font_size" type="number" class="text_pole ec-s-input-num" min="8"
+                                    max="32" value="15" title="Font size in pixels">
+                            </div>
+                            <div class="ec-s-field-group">
+                                <label class="ec-s-field-label" for="discord_opacity">
+                                    <i class="fa-solid fa-eye"></i> Opacity
+                                </label>
+                                <div class="ec-s-slider-row">
+                                    <input id="discord_opacity" type="range" class="slider ec-s-slider" min="10"
+                                        max="100" value="80" step="5">
+                                    <span id="discord_opacity_val" class="ec-s-slider-val">80%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ═══ CONTENT SETTINGS ═══ -->
+                <div class="ec-s-section" data-default-open>
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-gear"></i> Content Settings
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="ec-s-section-body" hidden>
+
+                        <!-- Auto-update -->
+                        <label class="ec-s-toggle-row" for="discord_auto_update">
+                            <input id="discord_auto_update" type="checkbox" class="checkbox">
+                            <span class="ec-s-label-text">
+                                <i class="fa-solid fa-sync"></i> Auto-update On Messages
+                            </span>
+                        </label>
+
+                        <!-- Include Chat History -->
+                        <label class="ec-s-toggle-row" for="discord_include_user">
+                            <input id="discord_include_user" type="checkbox" class="checkbox">
+                            <span class="ec-s-label-text">
+                                <i class="fa-solid fa-comments"></i> Include Chat History
+                            </span>
+                        </label>
+                        <div id="discord_context_depth_container" class="ec-s-sub-field" style="display:none">
+                            <label class="ec-s-field-label" for="discord_context_depth">Context Depth</label>
+                            <input id="discord_context_depth" type="number" class="text_pole ec-s-input-num" min="2"
+                                max="20" value="4" title="Number of messages to include">
+                        </div>
+
+                        <!-- Include Past EchoChambers -->
+                        <label class="ec-s-toggle-row" for="discord_include_past_echo">
+                            <input id="discord_include_past_echo" type="checkbox" class="checkbox">
+                            <span class="ec-s-label-text">
+                                <i class="fa-solid fa-layer-group"></i> Include Past Generated EchoChambers
+                            </span>
+                        </label>
+                        <div class="ec-s-hint ec-s-hint--indent">
+                            Includes previous commentary in the prompt for new generations
+                        </div>
+
+                        <!-- Include in Context sub-group -->
+                        <div class="ec-s-context-sub">
+                            <div class="ec-s-context-sub-title">
+                                <i class="fa-solid fa-file-lines"></i> Include in Context
+                            </div>
+
+                            <label class="ec-s-toggle-row" for="discord_include_persona">
+                                <input id="discord_include_persona" type="checkbox" class="checkbox">
+                                <span class="ec-s-label-text">
+                                    <i class="fa-solid fa-face-smile"></i> Persona
+                                </span>
+                            </label>
+
+                            <label class="ec-s-toggle-row" for="discord_include_character_description">
+                                <input id="discord_include_character_description" type="checkbox" class="checkbox">
+                                <span class="ec-s-label-text">
+                                    <i class="fa-solid fa-address-card"></i> Character Description(s)
+                                </span>
+                            </label>
+
+                            <label class="ec-s-toggle-row" for="discord_include_summary">
+                                <input id="discord_include_summary" type="checkbox" class="checkbox">
+                                <span class="ec-s-label-text">
+                                    <i class="fa-solid fa-scroll"></i> Summary (from Summarize ext.)
+                                </span>
+                            </label>
+
+                            <label class="ec-s-toggle-row" for="discord_include_world_info">
+                                <input id="discord_include_world_info" type="checkbox" class="checkbox">
+                                <span class="ec-s-label-text">
+                                    <i class="fa-solid fa-globe"></i> World Info / Lorebook
+                                </span>
+                            </label>
+
+                            <div class="ec-s-hint">
+                                Additional context to include when generating the chat feed
+                            </div>
+
+                            <!-- WI Budget -->
+                            <div id="discord_wi_budget_container" class="ec-s-sub-field" style="display:none">
+                                <label class="ec-s-field-label" for="discord_wi_budget">
+                                    <i class="fa-solid fa-coins"></i> WI Token Budget
+                                </label>
+                                <div class="ec-s-inline-pair">
+                                    <input id="discord_wi_budget" type="number" class="text_pole ec-s-input-num" min="0"
+                                        max="200000" step="1000" value="0"
+                                        title="Max tokens for lorebook entries. 0 = use SillyTavern's own budget (recommended).">
+                                    <span class="ec-s-hint">0 = use ST budget</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ═══ LIVESTREAM ═══ -->
+                <div class="ec-s-section">
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-tower-broadcast"></i> Livestream
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="ec-s-section-body" hidden>
+
+                        <label class="ec-s-toggle-row" for="discord_livestream">
+                            <input id="discord_livestream" type="checkbox" class="checkbox">
+                            <span class="ec-s-label-text">
+                                <i class="fa-solid fa-tower-broadcast"></i> Enable Livestream Mode
+                            </span>
+                        </label>
+                        <div class="ec-s-hint ec-s-hint--indent">
+                            Simulate a livestream by showing messages appear in the panel over time
+                        </div>
+
+                        <!-- Livestream Settings (shown when enabled) -->
+                        <div id="discord_livestream_settings" class="ec-s-sub-field" hidden>
+
+                            <div class="ec-s-grid-2">
+                                <div class="ec-s-field-group">
+                                    <label class="ec-s-field-label" for="discord_livestream_batch_size">
+                                        <i class="fa-solid fa-boxes-stacked"></i> Batch Size
+                                    </label>
+                                    <input id="discord_livestream_batch_size" type="number"
+                                        class="text_pole ec-s-input-num" min="5" max="50" value="20"
+                                        title="Number of messages to generate per batch">
+                                </div>
+                                <div class="ec-s-field-group">
+                                    <!-- spacer -->
+                                </div>
+                            </div>
+
+                            <div class="ec-s-grid-2">
+                                <div class="ec-s-field-group">
+                                    <label class="ec-s-field-label" for="discord_livestream_min_wait">
+                                        <i class="fa-solid fa-clock"></i> Min Wait (s)
+                                    </label>
+                                    <input id="discord_livestream_min_wait" type="number"
+                                        class="text_pole ec-s-input-num" min="1" max="120" value="5"
+                                        title="Minimum seconds to wait between messages">
+                                </div>
+                                <div class="ec-s-field-group">
+                                    <label class="ec-s-field-label" for="discord_livestream_max_wait">
+                                        <i class="fa-solid fa-clock"></i> Max Wait (s)
+                                    </label>
+                                    <input id="discord_livestream_max_wait" type="number"
+                                        class="text_pole ec-s-input-num" min="1" max="300" value="60"
+                                        title="Maximum seconds to wait between messages">
+                                </div>
+                            </div>
+
+                            <div class="ec-s-field-group">
+                                <div class="ec-s-field-label">
+                                    <i class="fa-solid fa-clapperboard"></i> Generation Mode
+                                </div>
+                                <label class="ec-s-toggle-row ec-s-radio-row" for="discord_livestream_manual">
+                                    <input type="radio" name="discord_livestream_mode" value="manual" class="radio"
+                                        id="discord_livestream_manual" checked>
+                                    <span class="ec-s-label-text">Manual Upon Clicking Regenerate Chat</span>
+                                </label>
+                                <label class="ec-s-toggle-row ec-s-radio-row" for="discord_livestream_onmessage">
+                                    <input type="radio" name="discord_livestream_mode" value="onMessage" class="radio"
+                                        id="discord_livestream_onmessage">
+                                    <span class="ec-s-label-text">Generate Upon Receiving A New Message</span>
+                                </label>
+                                <label class="ec-s-toggle-row ec-s-radio-row" for="discord_livestream_oncomplete">
+                                    <input type="radio" name="discord_livestream_mode" value="onComplete" class="radio"
+                                        id="discord_livestream_oncomplete">
+                                    <span class="ec-s-label-text">Generate A New Batch After The Last One
+                                        Finishes</span>
+                                </label>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ═══ CHAT PARTICIPATION ═══ -->
+                <div class="ec-s-section">
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-reply"></i> Chat Participation
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="ec-s-section-body" hidden>
+
+                        <label class="ec-s-toggle-row" for="discord_chat_enabled">
+                            <input id="discord_chat_enabled" type="checkbox" class="checkbox">
+                            <span class="ec-s-label-text">
+                                <i class="fa-solid fa-reply"></i> Enable Chat Participation
+                            </span>
+                        </label>
+                        <div class="ec-s-hint ec-s-hint--indent">
+                            Type in the chat panel and receive replies from AI chatters. Click any username to
+                            @mention them directly.
+                        </div>
+
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label" for="discord_chat_username">
+                                <i class="fa-solid fa-user"></i> Your Username
+                            </label>
+                            <input id="discord_chat_username" type="text" class="text_pole ec-s-input"
+                                placeholder="Streamer (You)">
+                        </div>
+
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label" for="discord_chat_avatar_color">
+                                <i class="fa-solid fa-circle"></i> Avatar Color
+                            </label>
+                            <div class="ec-s-color-row">
+                                <input id="discord_chat_avatar_color" type="color" class="ec-s-color-input" value="#3b82f6">
+                                <span class="ec-s-hint">Color of your avatar circle in the chat</span>
+                            </div>
+                        </div>
+
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label" for="discord_chat_reply_count">
+                                <i class="fa-solid fa-comments"></i> AI Replies per Comment
+                            </label>
+                            <input id="discord_chat_reply_count" type="number" class="text_pole ec-s-input"
+                                min="1" max="12" value="3">
+                            <div class="ec-s-hint ec-s-hint--indent">
+                                Number of AI responses after a general comment (1–12). Direct @mentions always get a single reply from that chatter.
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ═══ STYLE MANAGER ═══ -->
+                <div class="ec-s-section">
+                    <button class="ec-s-section-header" aria-expanded="false" type="button">
+                        <span class="ec-s-section-title">
+                            <i class="fa-solid fa-folder-tree"></i> Style Manager
+                        </span>
+                        <i class="ec-s-chevron fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="ec-s-section-body" hidden>
+
+                        <div class="ec-s-btn-row">
+                            <button id="discord_open_style_editor" class="menu_button">
+                                <i class="fa-solid fa-palette"></i> Manage
+                            </button>
+                            <button id="discord_import_btn" class="menu_button">
+                                <i class="fa-solid fa-file-import"></i> Import
+                            </button>
+                        </div>
+                        <input type="file" id="discord_import_file" accept=".md" style="display:none;">
+
+                    </div>
+                </div>
+
+            </div><!-- /.ec-s-panel -->
+
+        </div><!-- /.inline-drawer-content -->
+    </div><!-- /.inline-drawer -->
+</div><!-- /.discord_settings -->

@@ -45,13 +45,23 @@
         includeCharacterDescription: false,
         includeSummary: false,
         includeWorldInfo: false,
+        wiBudget: 0,
         livestream: false,
         livestreamBatchSize: 20,
         livestreamMode: 'manual',
         livestreamMinWait: 5,
         livestreamMaxWait: 60,
         custom_styles: {},
-        deleted_styles: []
+        deleted_styles: [],
+        style_order: null,
+        chatEnabled: true,
+        chatUsername: 'Streamer (You)',
+        chatAvatarColor: '#3b82f6',
+        chatReplyCount: 3,
+        floatLeft: null,
+        floatTop: null,
+        floatWidth: null,
+        floatHeight: null,
     };
 
     let settings = JSON.parse(JSON.stringify(defaultSettings));
@@ -65,16 +75,70 @@
     let userCancelled = false; // Track user-initiated cancellations
     let isLoadingChat = false; // Track when we're loading/switching chats to prevent auto-generation
     let isGenerating = false; // Track when generation is in progress to prevent concurrent requests
-
-    // Livestream state
+    let lastChatId = null; // Track the last chat ID to prevent false CHAT_CHANGED events    // Livestream state
     let livestreamQueue = []; // Queue of messages to display
     let livestreamTimer = null; // Timer for displaying next message
     let livestreamActive = false; // Whether livestream is currently displaying messages
 
-    // Pop-out window state
-    let popoutWindow = null; // Reference to pop-out window
-    let popoutDiscordBar = null; // Reference to panel in pop-out window
-    let popoutDiscordContent = null; // Reference to content in pop-out window
+    // Floating panel state (replaces cross-window pop-out approach)
+    let floatingPanelOpen = false;   // Whether the in-page floating panel is visible
+    let popoutDiscordContent = null; // Points to #ec_float_content when panel is open
+
+    // ============================================================
+    // CONFIRMATION MODAL (replaces native browser confirm())
+    // ============================================================
+
+    /**
+     * Shows a custom glassmorphism confirmation modal.
+     * Returns a Promise<boolean> — resolves true on Confirm, false on Cancel.
+     */
+    function showConfirmModal(message) {
+        return new Promise((resolve) => {
+            // Remove any existing modal
+            jQuery('#ec_confirm_modal').remove();
+
+            const modalHtml = `
+            <div id="ec_confirm_modal" class="ec_confirm_modal_overlay">
+                <div class="ec_confirm_modal_card">
+                    <div class="ec_confirm_modal_icon">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <div class="ec_confirm_modal_message">${message}</div>
+                    <div class="ec_confirm_modal_actions">
+                        <button class="ec_confirm_modal_btn ec_confirm_cancel" id="ec_confirm_cancel">Cancel</button>
+                        <button class="ec_confirm_modal_btn ec_confirm_ok" id="ec_confirm_ok">Clear</button>
+                    </div>
+                </div>
+            </div>`;
+
+            jQuery('body').append(modalHtml);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                jQuery('#ec_confirm_modal').addClass('ec_confirm_visible');
+            });
+
+            const cleanup = (result) => {
+                const overlay = jQuery('#ec_confirm_modal');
+                overlay.removeClass('ec_confirm_visible');
+                setTimeout(() => overlay.remove(), 200);
+                resolve(result);
+            };
+
+            jQuery('#ec_confirm_ok').on('click', () => cleanup(true));
+            jQuery('#ec_confirm_cancel').on('click', () => cleanup(false));
+            // Click backdrop to cancel
+            jQuery('#ec_confirm_modal').on('click', function (e) {
+                if (e.target === this) cleanup(false);
+            });
+            // ESC key to cancel
+            const onKey = (e) => {
+                if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(false); }
+                if (e.key === 'Enter') { document.removeEventListener('keydown', onKey); cleanup(true); }
+            };
+            document.addEventListener('keydown', onKey);
+        });
+    }
 
     // Simple debounce
     function debounce(func, wait) {
@@ -85,6 +149,50 @@
     }
 
     const generateDebounced = debounce(() => generateDiscordChat(), 500);
+
+    function updateReplyButtonState(isGen) {
+        const btns = jQuery('#ec_reply_submit, #ec_float_reply_submit');
+        if (isGen) {
+            btns.addClass('ec_reply_stop').attr('title', 'Stop action (cancel generation)');
+            btns.html('<i class="fa-solid fa-hourglass"></i>');
+        } else {
+            btns.removeClass('ec_reply_stop').attr('title', 'Send message');
+            btns.html('<i class="fa-solid fa-paper-plane"></i>');
+        }
+    }
+
+    function cancelGenerationContext() {
+        log('Cancel generation triggered');
+        clearTimeout(debounceTimeout);
+        if (abortController) {
+            log('Aborting generation...');
+            userCancelled = true;
+            jQuery('#ec_cancel_btn').html('<i class="fa-solid fa-hourglass"></i> Stopping...').css('pointer-events', 'none');
+            jQuery('.ec_reply_stop').html('<i class="fa-solid fa-hourglass"></i>');
+            abortController.abort();
+            log('AbortController.abort() called, signal.aborted:', abortController.signal.aborted);
+
+            // Also trigger SillyTavern's built-in stop generation
+            const stopButton = jQuery('#mes_stop');
+            if (stopButton.length && !stopButton.is('.disabled')) {
+                log('Triggering SillyTavern stop button');
+                stopButton.trigger('click');
+            }
+        } else {
+            log('No abortController, showing cancel message');
+            userCancelled = true;
+            setStatus('');
+            setDiscordText(`<div class="discord_status ec_cancelled"><i class="fa-solid fa-hand"></i> Processing cancelled</div>`);
+            setTimeout(() => {
+                const cancelledMsg = jQuery('.ec_cancelled');
+                if (cancelledMsg.length) {
+                    cancelledMsg.addClass('fade-out');
+                    setTimeout(() => cancelledMsg.remove(), 500);
+                }
+            }, 3000);
+            updateReplyButtonState(false);
+        }
+    }
 
     // ============================================================
     // UTILITY FUNCTIONS
@@ -173,21 +281,26 @@
             chatBlock.scrollTop(newScrollTop);
         }
 
-        // Sync to popout window if active
-        if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
+        // Sync to floating panel if open
+        if (floatingPanelOpen && popoutDiscordContent) {
             popoutDiscordContent.innerHTML = html;
             popoutDiscordContent.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
 
     function setStatus(html) {
-        const overlay = jQuery('.ec_status_overlay');
-        if (overlay.length > 0) {
+        // Target both main panel and floating panel overlays
+        const overlays = jQuery('.ec_status_overlay');
+        if (overlays.length > 0) {
             if (html) {
-                overlay.html(html).addClass('active');
+                overlays.html(html).addClass('active');
             } else {
-                overlay.removeClass('active');
-                setTimeout(() => { if (!overlay.hasClass('active')) overlay.empty(); }, 200);
+                overlays.removeClass('active');
+                setTimeout(() => {
+                    overlays.each(function () {
+                        if (!jQuery(this).hasClass('active')) jQuery(this).empty();
+                    });
+                }, 200);
             }
         }
     }
@@ -205,15 +318,69 @@
         `);
     }
 
-    function formatMessage(username, content) {
+    /**
+     * Hide Pop Out option on mobile devices
+     */
+    function updatePopoutVisibility() {
+        const isMobile = window.innerWidth <= 768;
+        
+        // Hide in settings dropdown
+        const positionSelect = jQuery('#discord_position');
+        if (positionSelect.length) {
+            positionSelect.find('option[value="popout"]').prop('hidden', isMobile).toggleClass('mobile-hidden', isMobile);
+        }
+        
+        // Hide in toolbar layout menu
+        jQuery('.ec_layout_menu .ec_menu_item[data-val="popout"]').toggle(!isMobile);
+        
+        // Hide in overflow menu
+        jQuery('.ec_of_pos_chip[data-val="popout"]').toggle(!isMobile);
+    }
+
+    function syncUserMenu(count) {
+        settings.userCount = count;
+        const countNum = parseInt(count);
+        jQuery('.ec_user_menu .ec_menu_item').each(function () {
+            const itemVal = parseInt(jQuery(this).data('val'));
+            jQuery(this).toggleClass('selected', itemVal === countNum);
+        });
+        jQuery('#discord_user_count').val(count);
+        // Also update the overflow menu selection if present
+        jQuery('.ec_of_chip[data-action="users"]').each(function () {
+            const chipVal = parseInt(jQuery(this).data('val'));
+            jQuery(this).toggleClass('ec_of_selected', chipVal === countNum);
+        });
+    }
+
+    function syncFontMenu(size) {
+        settings.fontSize = size;
+        applyFontSize(size);
+        jQuery('.ec_font_menu .ec_menu_item').each(function () {
+            jQuery(this).toggleClass('selected', jQuery(this).data('val') == size);
+        });
+        jQuery('#discord_font_size').val(size);
+    }
+
+    function applyAvatarColor(color) {
+        // Set the CSS variable on the document root so all user-message elements pick it up
+        document.documentElement.style.setProperty('--ec-user-avatar-color', color);
+    }
+
+    function formatMessage(username, content, isUser = false) {
         // Use DOMPurify from SillyTavern's shared libraries
         const { DOMPurify } = SillyTavern.libs;
 
-        let hash = 0;
-        for (let i = 0; i < username.length; i++) {
-            hash = username.charCodeAt(i) + ((hash << 5) - hash);
+        let color;
+        if (isUser) {
+            // Use the user's configured avatar color (CSS variable set on body)
+            color = settings.chatAvatarColor || '#3b82f6';
+        } else {
+            let hash = 0;
+            for (let i = 0; i < username.length; i++) {
+                hash = username.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            color = `hsl(${Math.abs(hash) % 360}, 75%, 70%)`;
         }
-        const color = `hsl(${Math.abs(hash) % 360}, 75%, 70%)`;
         const now = new Date();
         const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -231,8 +398,10 @@
             .replace(/~~(.*?)~~/g, '<del>$1</del>')
             .replace(/`(.+?)`/g, '<code>$1</code>');
 
+        const userClass = isUser ? ' ec_user_message' : '';
+
         return `
-        <div class="discord_message">
+        <div class="discord_message${userClass}">
             <div class="discord_avatar" style="background-color: ${color};">${safeUsername.substring(0, 1).toUpperCase()}</div>
             <div class="discord_body">
                 <div class="discord_header">
@@ -256,20 +425,16 @@
 
         // Only auto-generate if triggered by a new message, not by loading a chat
         if (autoGenerate) {
-            // If livestream is enabled and in onMessage mode, don't use regular generation
             if (settings.livestream && settings.livestreamMode === 'onMessage') {
-                // Only start new batch if livestream isn't actively displaying
-                // If it's active, let it finish first
-                if (!livestreamActive) {
-                    generateDebounced();
-                } else {
-                    log('Livestream active, skipping new generation trigger');
-                }
+                // New ST turn always triggers a fresh EchoChamber batch.
+                // generateDiscordChat → startLivestream will call stopLivestream() first,
+                // cleanly interrupting any in-progress drip and replacing it with new content.
+                generateDebounced();
             } else if (!settings.livestream) {
                 // Regular mode
                 generateDebounced();
             }
-            // If livestream is in onComplete mode, let it handle its own generation cycle
+            // If livestream is in onComplete mode, it handles its own generation cycle
         } else {
             // When loading a chat, restore cached commentary
             stopLivestream();
@@ -424,6 +589,25 @@
         log('Livestream stopped');
     }
 
+    // Pauses the livestream ticker without clearing the queue — safe to resume from
+    function pauseLivestream() {
+        if (livestreamTimer) {
+            clearTimeout(livestreamTimer);
+            livestreamTimer = null;
+        }
+    }
+
+    // Resumes the livestream ticker if messages remain in the queue
+    function resumeLivestream() {
+        if (livestreamActive && livestreamQueue.length > 0) {
+            const minWait = (settings.livestreamMinWait || 5) * 1000;
+            const maxWait = (settings.livestreamMaxWait || 60) * 1000;
+            const delay = Math.random() * (maxWait - minWait) + minWait;
+            log('Resuming livestream after reply. Next message in', (delay / 1000).toFixed(1), 's. Queue:', livestreamQueue.length);
+            livestreamTimer = setTimeout(() => displayNextLivestreamMessage(), delay);
+        }
+    }
+
     function startLivestream(messages) {
         stopLivestream(); // Clear any existing livestream
 
@@ -470,9 +654,10 @@
             let container = discordContent ? discordContent.find('.discord_container') : null;
 
             if (!container || !container.length) {
-                // No container exists - create one with current content
-                const currentContent = discordContent ? discordContent.html() : '';
-                discordContent.html(`<div class="discord_container" style="padding-top: 10px;">${currentContent}</div>`);
+                // No container exists yet — create a fresh empty one.
+                // Do NOT wrap existing panel content: it belongs to a previous turn
+                // and wrapping it would cause stale messages to appear alongside new ones.
+                discordContent.html('<div class="discord_container" style="padding-top: 10px;"></div>');
                 container = discordContent.find('.discord_container');
             }
 
@@ -483,13 +668,10 @@
             const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').append(jQuery(message));
             container.prepend(tempWrapper);
 
-            // Scroll to top of the EchoChamber panel to show new message
-            if (discordContent[0]) {
-                discordContent[0].scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            // Do NOT auto-scroll during livestream — user may be reading further down
 
-            // Sync to popout window if active
-            if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
+            // Sync to floating panel if open
+            if (floatingPanelOpen && popoutDiscordContent) {
                 try {
                     let popoutContainer = popoutDiscordContent.querySelector('.discord_container');
                     if (!popoutContainer) {
@@ -514,7 +696,7 @@
                     popoutWrapper.innerHTML = message;
                     popoutContainer.insertBefore(popoutWrapper, popoutContainer.firstChild);
 
-                    popoutDiscordContent.scrollTo({ top: 0, behavior: 'smooth' });
+                    // Do NOT auto-scroll floating panel during livestream
                 } catch (popoutErr) {
                     // Ignore popout errors, don't let them break the livestream
                     log('Popout sync error (ignored):', popoutErr);
@@ -566,253 +748,407 @@
     }
 
     // ============================================================
-    // POP-OUT WINDOW FUNCTIONS
+    // FLOATING PANEL FUNCTIONS
     // ============================================================
 
+    /**
+     * Makes a jQuery element draggable within the viewport using a designated handle.
+     */
+    function makeDraggable(element, handle) {
+        let isDragging = false;
+        let startX, startY, origLeft, origTop;
+
+        handle[0].addEventListener('mousedown', (e) => {
+            // Only drag on primary button; ignore clicks on interactive children
+            if (e.button !== 0) return;
+            if (e.target.closest('select, input, button, .ec_float_btn')) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = element[0].getBoundingClientRect();
+            origLeft = rect.left;
+            origTop = rect.top;
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+        });
+
+        function onMouseMove(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            const panelW = element[0].offsetWidth;
+            const panelH = element[0].offsetHeight;
+            const newLeft = Math.max(0, Math.min(window.innerWidth - panelW, origLeft + dx));
+            const newTop = Math.max(0, Math.min(window.innerHeight - 40, origTop + dy));
+            element.css({ left: newLeft + 'px', top: newTop + 'px' });
+        }
+
+        function onMouseUp() {
+            if (!isDragging) return;
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            // Persist final position so it can be restored on next open / reload
+            settings.floatLeft = parseInt(element.css('left')) || 0;
+            settings.floatTop  = parseInt(element.css('top'))  || 0;
+            saveSettings();
+        }
+    }
+
+    /**
+     * Attaches resize logic to all four corner handles of the floating panel.
+     * Each handle element carries a data-corner attribute: nw, ne, sw, se.
+     */
+    function makeFloatingPanelResizable(panel) {
+        panel.find('.ec_float_resize_handle').each(function () {
+            const handle = this;
+            const corner = handle.dataset.corner;
+            let active = false;
+            let startX, startY, startW, startH, startLeft, startTop;
+
+            handle.addEventListener('mousedown', (e) => {
+                active = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                startW = panel[0].offsetWidth;
+                startH = panel[0].offsetHeight;
+                startLeft = parseInt(panel.css('left')) || 0;
+                startTop = parseInt(panel.css('top')) || 0;
+                e.preventDefault();
+                e.stopPropagation();
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+
+            function onMove(e) {
+                if (!active) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                const MIN_W = 300, MIN_H = 200;
+                const MAX_W = window.innerWidth - 20;
+                const MAX_H = window.innerHeight - 20;
+
+                let newW = startW, newH = startH, newL = startLeft, newT = startTop;
+
+                if (corner === 'se') {
+                    newW = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
+                    newH = Math.max(MIN_H, Math.min(MAX_H, startH + dy));
+                } else if (corner === 'sw') {
+                    newW = Math.max(MIN_W, Math.min(MAX_W, startW - dx));
+                    newH = Math.max(MIN_H, Math.min(MAX_H, startH + dy));
+                    newL = startLeft + (startW - newW);
+                } else if (corner === 'ne') {
+                    newW = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
+                    newH = Math.max(MIN_H, Math.min(MAX_H, startH - dy));
+                    newT = startTop + (startH - newH);
+                } else if (corner === 'nw') {
+                    newW = Math.max(MIN_W, Math.min(MAX_W, startW - dx));
+                    newH = Math.max(MIN_H, Math.min(MAX_H, startH - dy));
+                    newL = startLeft + (startW - newW);
+                    newT = startTop + (startH - newH);
+                }
+
+                panel.css({
+                    width: newW + 'px', height: newH + 'px',
+                    left: newL + 'px', top: newT + 'px'
+                });
+            }
+
+            function onUp() {
+                if (!active) return;
+                active = false;
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                // Persist final size and position so they can be restored on next open / reload
+                settings.floatLeft   = parseInt(panel.css('left'))   || 0;
+                settings.floatTop    = parseInt(panel.css('top'))     || 0;
+                settings.floatWidth  = parseInt(panel.css('width'))   || 420;
+                settings.floatHeight = parseInt(panel.css('height'))  || 620;
+                saveSettings();
+            }
+        });
+    }
+
+    /**
+     * Opens the in-page floating EchoChamber panel.
+     * Lives in the same document as ST so all CSS variables, dynamic styles,
+     * and DOM references work without any cross-window plumbing.
+     */
     function openPopoutWindow() {
-        // Check if window is already open
-        if (popoutWindow && !popoutWindow.closed) {
-            popoutWindow.focus();
+        // If panel is already open, bring it to the front
+        if (floatingPanelOpen && jQuery('#ec_floating_panel').length) {
+            jQuery('#ec_floating_panel').css('z-index', 9999);
             return;
         }
 
-        // Get current content
         const currentContent = discordContent ? discordContent.html() : '';
 
-        // Create popup window
-        const width = 450;
-        const height = 700;
-        const left = window.screenX + window.outerWidth; // Position to the right of main window
-        const top = window.screenY;
+        const chatInputHtml = settings.chatEnabled ? `
+            <div class="ec_reply_container ec_float_reply_bar" id="ec_float_reply_bar">
+                <div class="ec_reply_wrapper">
+                    <input type="text" class="ec_reply_input" placeholder="Type a message to participate..." id="ec_float_reply_field">
+                    <div class="ec_reply_send" id="ec_float_reply_submit" title="Send message"><i class="fa-solid fa-paper-plane"></i></div>
+                </div>
+            </div>` : '';
 
-        popoutWindow = window.open('', 'EchoChamber_Popout',
-            `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+        const panelHtml = `
+        <div id="ec_floating_panel" class="ec_floating_panel">
 
-        if (!popoutWindow) {
-            alert('Pop-up blocked! Please allow pop-ups for this site to use the pop-out feature.');
-            return;
+            <!-- Row 1: drag handle — title, live indicator, dock button -->
+            <div class="ec_float_header" id="ec_float_drag_handle">
+                <div class="ec_float_header_left">
+                    <span class="ec_float_title">EchoChamber</span>
+                    <div class="ec_live_indicator" id="ec_float_live_indicator">
+                        <i class="fa-solid fa-circle"></i> LIVE
+                    </div>
+                </div>
+                <div class="ec_float_header_right">
+                    <div class="ec_float_btn" id="ec_float_dock_btn" title="Dock — close floating panel">
+                        <i class="fa-solid fa-arrow-up-right-from-square" style="transform:rotate(180deg)"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 2: toolbar — style selector left (50%), icon buttons right (50%) -->
+            <div class="ec_float_toolbar">
+                <div class="ec_float_toolbar_left">
+                    <div class="ec_btn ec_float_style_btn" id="ec_float_style_indicator" title="Change Style">
+                        <i class="fa-solid fa-masks-theater"></i>
+                        <span class="ec_float_style_label">Style</span>
+                        <i class="fa-solid fa-caret-down ec_dropdown_arrow"></i>
+                        <div class="ec_popup_menu ec_style_menu ec_float_style_menu"></div>
+                    </div>
+                </div>
+                <div class="ec_float_toolbar_right">
+                    <div class="ec_btn ec_float_tool" title="Regenerate Chat">
+                        <i class="fa-solid fa-rotate-right"></i>
+                    </div>
+                    <div class="ec_btn ec_float_tool" title="User Count">
+                        <i class="fa-solid fa-users"></i>
+                        <div class="ec_popup_menu ec_user_menu"></div>
+                    </div>
+                    <div class="ec_btn ec_float_tool" title="Font Size">
+                        <i class="fa-solid fa-font"></i>
+                        <div class="ec_popup_menu ec_font_menu"></div>
+                    </div>
+                    <div class="ec_btn ec_float_tool" title="Clear Chat &amp; Cache">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </div>
+                    <div class="ec_btn ec_float_tool" title="Settings">
+                        <i class="fa-solid fa-gear"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat content and overlay -->
+            <div id="ec_float_status_overlay" class="ec_status_overlay"></div>
+            <div id="ec_float_content" class="ec_float_content">${currentContent}</div>
+
+            ${chatInputHtml}
+
+            <!-- Four-corner resize handles -->
+            <div class="ec_float_resize_handle" data-corner="nw"></div>
+            <div class="ec_float_resize_handle" data-corner="ne"></div>
+            <div class="ec_float_resize_handle" data-corner="sw"></div>
+            <div class="ec_float_resize_handle" data-corner="se"></div>
+        </div>`;
+
+        jQuery('body').append(panelHtml);
+
+        const panel = jQuery('#ec_floating_panel');
+
+        // Position and size panel — restore saved values, or fall back to defaults
+        const panelW = settings.floatWidth  || 420;
+        const panelH = settings.floatHeight || 620;
+        const defaultLeft = Math.max(20, window.innerWidth - panelW - 24);
+        const defaultTop  = 60;
+        // Clamp restored position so the panel stays fully on-screen even after a viewport resize
+        const restoredLeft = settings.floatLeft != null ? settings.floatLeft : defaultLeft;
+        const restoredTop  = settings.floatTop  != null ? settings.floatTop  : defaultTop;
+        const startLeft = Math.max(0, Math.min(window.innerWidth  - panelW, restoredLeft));
+        const startTop  = Math.max(0, Math.min(window.innerHeight - 40,     restoredTop));
+        panel.css({ left: startLeft + 'px', top: startTop + 'px', width: panelW + 'px', height: panelH + 'px' });
+
+        // Register as the sync target for setDiscordText / displayNextLivestreamMessage
+        floatingPanelOpen = true;
+        popoutDiscordContent = document.getElementById('ec_float_content');
+
+        // Attach drag and resize
+        makeDraggable(panel, jQuery('#ec_float_drag_handle'));
+        makeFloatingPanelResizable(panel);
+
+        // ---- Populate toolbar popup menus ----
+
+        // User Count menu — same items as main panel, same ec_menu_item delegation handles clicks
+        const floatUserMenu = panel.find('.ec_float_toolbar .ec_user_menu');
+        const currentUsers = parseInt(settings.userCount) || 5;
+        for (let i = 1; i <= 20; i++) {
+            floatUserMenu.append(`<div class="ec_menu_item${i === currentUsers ? ' selected' : ''}" data-val="${i}">${i} users</div>`);
         }
 
-        // Build the popup HTML
-        popoutWindow.document.write(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>EchoChamber - Pop Out</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+        // Font Size menu
+        const floatFontMenu = panel.find('.ec_float_toolbar .ec_font_menu');
+        const currentFont = settings.fontSize || 15;
+        for (let i = 8; i <= 24; i++) {
+            floatFontMenu.append(`<div class="ec_menu_item${i === currentFont ? ' selected' : ''}" data-val="${i}">${i}px</div>`);
         }
-        .popout-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 12px 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-        }
-        .popout-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: white;
-        }
-        .popout-controls {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        .popout-btn {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: background 0.2s;
-        }
-        .popout-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        .style-select {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .style-select option {
-            background: #2a2a4e;
-            color: white;
-        }
-        .popout-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-            background: #16213e;
-        }
-        /* Discord-style message styling */
-        .discord_container { display: flex; flex-direction: column; gap: 8px; }
-        .discord_message {
-            display: flex;
-            gap: 10px;
-            padding: 8px 12px;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.03);
-            animation: fadeIn 0.3s ease-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .discord_avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            flex-shrink: 0;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 14px;
-            color: white;
-        }
-        .discord_content { flex: 1; min-width: 0; }
-        .discord_header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
-        .discord_username { font-weight: 600; color: #7289da; font-size: 14px; }
-        .discord_timestamp { font-size: 11px; color: #72767d; }
-        .discord_text { font-size: 14px; line-height: 1.4; word-wrap: break-word; }
-        .ec_livestream_message {
-            animation: slideIn 0.5s ease-out;
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
-</head>
-<body>
-    <div class="popout-header">
-        <span class="popout-title">🗣️ EchoChamber</span>
-        <div class="popout-controls">
-            <select class="style-select" id="popout-style-select">
-                <option value="">Loading styles...</option>
-            </select>
-            <button class="popout-btn" id="dock-btn" title="Return to SillyTavern">📌 Dock to ST</button>
-        </div>
-    </div>
-    <div class="popout-content" id="popout-discord-content">
-        ${currentContent}
-    </div>
-</body>
-</html>
-        `);
-        popoutWindow.document.close();
 
-        // Get references to popout elements
-        popoutDiscordContent = popoutWindow.document.getElementById('popout-discord-content');
+        // Style button — populate its popup menu and show the current style name
+        const floatStyleMenu = jQuery('#ec_float_style_indicator .ec_float_style_menu');
+        populateStyleMenu(floatStyleMenu);
+        updateFloatStyleLabel();
 
-        // Setup dock button
-        const dockBtn = popoutWindow.document.getElementById('dock-btn');
-        dockBtn.addEventListener('click', () => {
-            closePopoutWindow();
+        // ---- Float style button: use a body-appended fixed-position menu to escape overflow:hidden ----
+        jQuery('#ec_float_style_menu_body').remove();
+        const floatStyleMenuBody = jQuery('<div id="ec_float_style_menu_body" class="ec_popup_menu ec_style_menu ec_indicator_menu"></div>');
+        jQuery('body').append(floatStyleMenuBody);
+        populateStyleMenu(floatStyleMenuBody);
+
+        jQuery('#ec_float_style_indicator').on('click.floatstyle', function (e) {
+            e.stopPropagation();
+            const trigger = jQuery(this);
+            const wasActive = trigger.hasClass('active');
+
+            // Close all other menus
+            jQuery('.ec_btn').removeClass('open active');
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('#ec_style_menu_body').hide();
+            jQuery('.ec_style_dropdown_trigger').removeClass('active');
+
+            if (!wasActive) {
+                trigger.addClass('active open');
+                const rect = trigger[0].getBoundingClientRect();
+                // Open downward (floating panel is not at bottom position)
+                floatStyleMenuBody.css({
+                    position: 'fixed',
+                    top: rect.bottom + 'px',
+                    bottom: 'auto',
+                    left: rect.left + 'px',
+                    width: Math.max(rect.width, 180) + 'px',
+                    display: 'block',
+                    maxHeight: Math.min(300, window.innerHeight - rect.bottom - 10) + 'px',
+                    overflowY: 'auto'
+                });
+            } else {
+                trigger.removeClass('active open');
+                floatStyleMenuBody.hide();
+            }
         });
 
-        // Setup style selector
-        const styleSelect = popoutWindow.document.getElementById('popout-style-select');
-        populatePopoutStyleSelector(styleSelect);
 
-        // Handle window close
-        popoutWindow.addEventListener('beforeunload', () => {
-            popoutWindow = null;
-            popoutDiscordBar = null;
-            popoutDiscordContent = null;
-        });
-
-        log('Popout window opened');
-    }
-
-    function closePopoutWindow() {
-        if (popoutWindow && !popoutWindow.closed) {
-            popoutWindow.close();
+        // Collapse the main panel when floating panel opens (it's now redundant)
+        if (discordBar && !settings.collapsed) {
+            settings.collapsed = true;
+            discordBar.addClass('ec_collapsed');
+            updatePanelIcons();
+            saveSettings();
         }
-        popoutWindow = null;
-        popoutDiscordBar = null;
-        popoutDiscordContent = null;
-        log('Popout window closed');
-    }
 
-    async function populatePopoutStyleSelector(selectElement) {
-        if (!selectElement) return;
+        // Sync live indicator to current state
+        updateLiveIndicator();
 
-        // Get built-in styles
-        const builtInStyles = [
-            { value: 'twitch', label: '🎮 Discord/Twitch' },
-            { value: 'twitter', label: '🐦 Twitter/X' },
-            { value: 'ao3_wattpad', label: '📚 AO3/Wattpad' },
-            { value: 'breaking_news', label: '📺 Breaking News' },
-            { value: 'mst3k', label: '🎬 MST3K' },
-            { value: 'nsfw_ava', label: '💋 NSFW Ava' },
-            { value: 'nsfw_kai', label: '🔥 NSFW Kai' },
-            { value: 'hypebot', label: '🤖 HypeBot' },
-            { value: 'thoughtful', label: '🤔 Thoughtful' },
-            { value: 'dumb_and_dumber', label: '🤪 Dumb & Dumber' },
-            { value: 'doomscrollers', label: '😰 Doomscrollers' }
-        ];
-
-        // Clear and populate
-        selectElement.innerHTML = '';
-
-        // Add built-in styles
-        builtInStyles.forEach(style => {
-            const option = document.createElement('option');
-            option.value = style.value;
-            option.textContent = style.label;
-            if (style.value === settings.style) option.selected = true;
-            selectElement.appendChild(option);
+        // Live indicator click — mirrors main panel behaviour
+        jQuery('#ec_float_live_indicator').on('click', function () {
+            if (jQuery(this).hasClass('ec_live_loading')) {
+                userCancelled = true;
+                clearTimeout(debounceTimeout);
+                if (abortController) abortController.abort();
+                updateLiveIndicator();
+            } else {
+                toggleLivestream(!settings.livestream);
+            }
         });
 
-        // Add custom styles if any
-        if (settings.custom_styles && Object.keys(settings.custom_styles).length > 0) {
-            const optgroup = document.createElement('optgroup');
-            optgroup.label = '✨ Custom Styles';
-            Object.keys(settings.custom_styles).forEach(styleName => {
-                const option = document.createElement('option');
-                option.value = styleName;
-                option.textContent = styleName;
-                if (styleName === settings.style) option.selected = true;
-                optgroup.appendChild(option);
+        // Dock / close button
+        jQuery('#ec_float_dock_btn').on('click', closePopoutWindow);
+
+        // Chat Participation
+        if (settings.chatEnabled) {
+            const handleFloatSubmit = async () => {
+                if (isGenerating) {
+                    cancelGenerationContext();
+                    return;
+                }
+                const input = jQuery('#ec_float_reply_field');
+                const text = input.val().trim();
+                if (!text) return;
+                input.val('');
+
+                const myMsg = formatMessage(settings.chatUsername || 'Streamer (You)', text, true);
+
+                // Prepend to floating panel
+                const floatContainer = jQuery('#ec_float_content .discord_container');
+                if (floatContainer.length) {
+                    floatContainer.prepend(myMsg);
+                } else {
+                    jQuery('#ec_float_content').html(`<div class="discord_container">${myMsg}</div>`);
+                }
+                jQuery('#ec_float_content')[0].scrollTo({ top: 0, behavior: 'smooth' });
+
+                // Also prepend to main panel so they stay in sync
+                const mainContainer = jQuery('#discordContent .discord_container');
+                if (mainContainer.length) {
+                    mainContainer.prepend(myMsg);
+                } else {
+                    jQuery('#discordContent').html(`<div class="discord_container">${myMsg}</div>`);
+                }
+                jQuery('#discordContent')[0].scrollTo({ top: 0, behavior: 'smooth' });
+
+                // Parse @mention and generate targeted reply
+                const atMatch = text.match(/^@([^\s]+)/);
+                await generateSingleReply(text, atMatch ? atMatch[1] : null);
+            };
+
+            jQuery('#ec_float_reply_submit').on('click', handleFloatSubmit);
+            jQuery('#ec_float_reply_field').on('keypress', function (e) {
+                if (e.which === 13) handleFloatSubmit();
             });
-            selectElement.appendChild(optgroup);
+
+            // Clicking a username in the float panel tags them in the float input
+            jQuery('#ec_float_content').on('click', '.discord_username', function () {
+                jQuery('#ec_float_reply_field').val('@' + jQuery(this).text() + ' ').focus();
+            });
         }
 
-        // Handle style change from popout
-        selectElement.addEventListener('change', (e) => {
-            const newStyle = e.target.value;
-            settings.style = newStyle;
+        log('Floating panel opened');
+    }
 
-            // Update main window selector if exists
-            const mainSelector = document.querySelector('#discord_style_select');
-            if (mainSelector) mainSelector.value = newStyle;
+    /**
+     * Closes and removes the floating panel, and re-expands the main panel.
+     */
+    function closePopoutWindow() {
+        jQuery('#ec_floating_panel').remove();
+        jQuery('#ec_float_style_menu_body').remove(); // cleanup body-appended float style menu
+        floatingPanelOpen = false;
+        popoutDiscordContent = null;
 
-            // Update quick bar selector if exists
-            const quickSelector = document.querySelector('.ec_quick_bar select');
-            if (quickSelector) quickSelector.value = newStyle;
+        // Re-expand the main panel when floating panel is docked/closed
+        if (discordBar && settings.collapsed) {
+            settings.collapsed = false;
+            discordBar.removeClass('ec_collapsed');
+            updatePanelIcons();
+            saveSettings();
+        }
 
-            // Save settings
-            SillyTavern.getContext().saveSettingsDebounced();
+        log('Floating panel closed');
+    }
 
-            log('Style changed from popout to:', newStyle);
+    /**
+     * Updates the style label inside the floating panel's style button.
+     * Reads the current style name from settings and updates the button span text.
+     * Also refreshes the body-appended fixed-position menu's selection highlight.
+     */
+    function updateFloatStyleLabel() {
+        const floatBtn = jQuery('#ec_float_style_indicator');
+        if (!floatBtn.length) return;
+        const styles = getAllStyles();
+        const currentStyle = styles.find(s => s.val === settings.style);
+        const styleName = currentStyle ? currentStyle.label : (settings.style || 'Default');
+        floatBtn.find('.ec_float_style_label').text(styleName);
+        // Refresh selection highlight in the body-appended float style menu
+        jQuery('#ec_float_style_menu_body .ec_menu_item').each(function () {
+            jQuery(this).toggleClass('selected', jQuery(this).data('val') === settings.style);
         });
     }
 
@@ -838,10 +1174,222 @@
     }
 
     // ============================================================
+    // SINGLE REPLY GENERATION (targeted user interaction)
+    // ============================================================
+
+    let isReplying = false;
+
+    async function generateSingleReply(replyText, targetUsername) {
+        if (isReplying) return;
+        isReplying = true;
+
+        // Pause any active livestream so reply messages slot in cleanly without racing
+        const wasLivestreaming = settings.livestream && livestreamActive;
+        if (wasLivestreaming) pauseLivestream();
+
+        const context = SillyTavern.getContext();
+        const chat = context.chat;
+        if (!chat || chat.length === 0) { isReplying = false; return; }
+
+        const cleanMsg = (text) => {
+            if (!text) return '';
+            let c = text.replace(/<(thinking|think|thought|reasoning|reason)[\s\S]*?<\/\1>/gi, '').trim();
+            c = c.replace(/<[^>]*>/g, '');
+            const t = document.createElement('textarea');
+            t.innerHTML = c;
+            return t.value;
+        };
+
+        // Story context — last 2 messages, each capped at 400 chars so long passages don't overwhelm
+        const storyContext = chat.filter(m => !m.is_system).slice(-2)
+            .map(m => {
+                const text = cleanMsg(m.mes);
+                return `${m.name}: ${text.length > 400 ? text.substring(0, 400) + '...' : text}`;
+            }).join('\n');
+
+        // Extract recent EchoChamber conversation from the DOM for conversational continuity.
+        // The container uses prepend() so DOM order is newest-first — reverse to get oldest-first.
+        const ecMessages = [];
+        jQuery('#discordContent .discord_message').slice(0, 8).each(function () {
+            const uname = jQuery(this).find('.discord_username').first().text().trim();
+            const content = jQuery(this).find('.discord_content').first().text().trim();
+            if (uname && content) ecMessages.push(`${uname}: ${content}`);
+        });
+        const ecHistory = ecMessages.reverse().join('\n');
+
+        // Load the current chat style so replies match the room's tone and format
+        const stylePrompt = await loadChatStyle(settings.style || 'twitch');
+        const chatUsername = settings.chatUsername || 'Streamer (You)';
+        const atUsername = `@${chatUsername}`;
+        const replyCount = Math.max(1, Math.min(12, settings.chatReplyCount || 3));
+        const maxTok = targetUsername ? 200 : Math.max(200, replyCount * 80);
+
+        const systemPrompt = targetUsername
+            ? `You are "${targetUsername}", a viewer in an active chatroom who was just directly addressed. Focus tightly on what "${atUsername}" just said to you — that is the primary context. Respond naturally in 1 sentence max. Use "${atUsername}" when addressing them. STRICTLY follow the provided chat style format.`
+            : `You write short chatroom messages from different viewers reacting to "${atUsername}" (the streamer) and the ongoing conversation. Focus on the most recent exchange. Keep messages brief and casual. STRICTLY follow the provided chat style format.`;
+
+        const userPrompt = targetUsername
+            ? `Story excerpt being discussed:\n${storyContext}\n\nRecent chatroom (oldest → newest):\n${ecHistory}\n\n"${atUsername}" just said to you: "${replyText}"\n\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY 1 short reply from "${targetUsername}" reacting to what "${atUsername}" just said. Your reply MUST begin by addressing them as "${atUsername}". No other chatters.\n\nFormat (follow exactly):\n${targetUsername}: ${atUsername} [your reply here]\n\nOutput only that single line.`
+            : `Story excerpt being discussed:\n${storyContext}\n\nRecent chatroom (oldest → newest):\n${ecHistory}\n\n"${atUsername}" posted: "${replyText}"\n\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY ${replyCount} short repl${replyCount === 1 ? 'y' : 'ies'} from different chatters reacting to the MOST RECENT context above. Some may address "${atUsername}" directly using "${atUsername}".\n\nFormat:\nusername: message\n\nOutput only the messages, nothing else.`;
+
+        abortController = new AbortController();
+        userCancelled = false;
+        isGenerating = true;
+        updateReplyButtonState(true);
+
+        const typingName = targetUsername || 'Chat';
+        // In Livestream mode: use the LIVE indicator turning orange instead of a status popup
+        if (settings.livestream) {
+            updateLiveIndicator('loading');
+        } else {
+            setStatus(`<span><i class="fa-solid fa-circle-notch fa-spin"></i> ${typingName} is typing...</span>`);
+        }
+
+        try {
+            let result = '';
+
+            if (settings.source === 'ollama') {
+                const baseUrl = settings.url.replace(/\/$/, '');
+                const modelToUse = settings.model;
+                if (!modelToUse) { setStatus(''); isReplying = false; return; }
+                const resp = await fetch(`${baseUrl}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: modelToUse,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        stream: false,
+                        options: { num_predict: maxTok }
+                    }),
+                    signal: abortController.signal
+                });
+                if (!resp.ok) throw new Error(`Ollama error: ${resp.status}`);
+                const data = await resp.json();
+                result = data.message?.content || '';
+
+            } else if (settings.source === 'openai') {
+                const baseUrl = settings.openai_url.replace(/\/$/, '');
+                const resp = await fetch(`${baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(settings.openai_key ? { 'Authorization': `Bearer ${settings.openai_key}` } : {})
+                    },
+                    body: JSON.stringify({
+                        model: settings.openai_model || 'local-model',
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        temperature: 0.85,
+                        max_tokens: maxTok,
+                        stream: false
+                    }),
+                    signal: abortController.signal
+                });
+                if (!resp.ok) throw new Error(`OpenAI error: ${resp.status}`);
+                const data = await resp.json();
+                result = extractTextFromResponse(data);
+
+            } else if (settings.source === 'profile') {
+                const cm = context.extensionSettings?.connectionManager;
+                const profile = cm?.profiles?.find(p => p.name === settings.preset);
+                if (!profile || !context.ConnectionManagerRequestService) throw new Error('Profile not available');
+                const resp = await context.ConnectionManagerRequestService.sendRequest(
+                    profile.id,
+                    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    maxTok,
+                    { stream: false, signal: abortController.signal, extractData: true, includePreset: true, includeInstruct: true }
+                );
+                result = extractTextFromResponse(resp);
+
+            } else {
+                // Default ST generateRaw
+                const { generateRaw } = context;
+                if (generateRaw) {
+                    result = await generateRaw({
+                        prompt: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        quietToLoud: false
+                    });
+                }
+            }
+
+            setStatus('');
+            if (!result || !result.trim()) { isReplying = false; return; }
+
+            // Parse "username: message" lines and prepend each to existing chat
+            const lines = result.trim().split('\n').filter(l => l.trim() && l.includes(':'));
+            const container = jQuery('#discordContent .discord_container');
+            // Reverse so the first message in the AI response ends up on top
+            [...lines].reverse().forEach(line => {
+                const colonIdx = line.indexOf(':');
+                if (colonIdx < 1) return;
+                const uname = line.substring(0, colonIdx).trim();
+                const content = line.substring(colonIdx + 1).trim();
+                if (!uname || !content) return;
+                const msgHtml = formatMessage(uname, content);
+                if (container.length) {
+                    container.prepend(msgHtml);
+                } else {
+                    jQuery('#discordContent').html(`<div class="discord_container">${msgHtml}</div>`);
+                }
+            });
+
+            // Mirror AI replies into the floating panel if it is open
+            if (floatingPanelOpen && popoutDiscordContent) {
+                const floatContainer = jQuery('#ec_float_content .discord_container');
+                [...lines].reverse().forEach(line => {
+                    const colonIdx = line.indexOf(':');
+                    if (colonIdx < 1) return;
+                    const uname = line.substring(0, colonIdx).trim();
+                    const content = line.substring(colonIdx + 1).trim();
+                    if (!uname || !content) return;
+                    const msgHtml = formatMessage(uname, content);
+                    if (floatContainer.length) {
+                        floatContainer.prepend(msgHtml);
+                    } else {
+                        jQuery('#ec_float_content').html(`<div class="discord_container">${msgHtml}</div>`);
+                    }
+                });
+                jQuery('#ec_float_content')[0].scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            // Persist the updated panel HTML to the cache so it survives page refresh
+            savePanelState();
+
+        } catch (e) {
+            if (e.name !== 'AbortError' && !userCancelled) error('generateSingleReply error:', e);
+            setStatus('');
+            if (settings.livestream) updateLiveIndicator();
+        } finally {
+            isReplying = false;
+            isGenerating = false;
+            updateReplyButtonState(false);
+            // Resume the livestream ticker now that the reply exchange is complete
+            if (wasLivestreaming) resumeLivestream();
+            // Ensure indicator is restored after reply (whether livestream or not)
+            if (settings.livestream) updateLiveIndicator();
+        }
+    }
+
+    // ============================================================
     // GENERATION
     // ============================================================
 
-    async function generateDiscordChat() {
+    // Saves the current panel HTML to chat metadata so user replies survive reload
+    function savePanelState() {
+        if (!discordContent) return;
+        const currentHtml = discordContent.html();
+        if (!currentHtml || !currentHtml.trim()) return;
+        const existing = getChatMetadata();
+        const messageCommentaries = (existing && existing.messageCommentaries) || {};
+        saveChatMetadata({
+            generatedHtml: currentHtml,
+            messageCommentaries,
+            timestamp: Date.now(),
+            livestreamComplete: true
+        });
+        log('Panel state saved after reply exchange');
+    }
+
+    async function generateDiscordChat(showOverlay = false) {
         if (!settings.enabled) {
             if (discordBar) discordBar.hide();
             return;
@@ -867,17 +1415,26 @@
 
         // Mark generation as in progress
         isGenerating = true;
+        updateReplyButtonState(true);
 
         // Create new AbortController BEFORE setting up the Cancel button
         userCancelled = false;
         abortController = new AbortController();
 
-        setStatus(`
-            <span><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</span>
-            <div class="ec_status_btn" id="ec_cancel_btn" title="Cancel Generation">
-                 <i class="fa-solid fa-ban"></i> Cancel
-            </div>
-        `);
+        // In Livestream mode (background auto-generation): suppress the Processing/Cancel popup
+        // overlay — the LIVE indicator turning orange provides the visual feedback instead.
+        // When triggered explicitly by the user (showOverlay=true, e.g. Regenerate Chat button),
+        // always show the full overlay regardless of Livestream state.
+        if (settings.livestream && !showOverlay) {
+            updateLiveIndicator('loading');
+        } else {
+            setStatus(`
+                <span><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</span>
+                <div class="ec_status_btn" id="ec_cancel_btn" title="Cancel Generation">
+                     <i class="fa-solid fa-ban"></i> Cancel
+                </div>
+            `);
+        }
 
         // Use event delegation to ensure the handler works even if button is recreated
         jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function (e) {
@@ -980,13 +1537,21 @@
         let actualUserCount; // Number of different users
         let messageCount; // Number of messages to generate
 
-        if (settings.livestream) {
-            // In livestream mode, use user count for number of users, batch size for messages
-            actualUserCount = isNarratorStyle ? 1 : Math.max(1, Math.min(20, parseInt(settings.userCount) || 5));
-            messageCount = isNarratorStyle ? 1 : Math.max(5, Math.min(50, parseInt(settings.livestreamBatchSize) || 20));
+        if (settings.livestream && !showOverlay) {
+            // Background auto-generation in livestream mode: use batch size for the queue
+            // Narrator styles (single character) still generate multiple messages in livestream mode
+            actualUserCount = 1; // Always 1 user for narrator styles; for others use userCount
+            if (isNarratorStyle) {
+                // Narrator styles: single character but generate multiple messages for livestream
+                actualUserCount = 1;
+                messageCount = Math.max(5, Math.min(50, parseInt(settings.livestreamBatchSize) || 20));
+            } else {
+                actualUserCount = Math.max(1, Math.min(20, parseInt(settings.userCount) || 5));
+                messageCount = Math.max(5, Math.min(50, parseInt(settings.livestreamBatchSize) || 20));
+            }
             log('Livestream mode - users:', actualUserCount, 'messages:', messageCount);
         } else {
-            // Regular mode - user count determines both
+            // Regular mode (or explicit regen in livestream mode): user count determines both
             actualUserCount = isNarratorStyle ? 1 : (parseInt(settings.userCount) || 5);
             messageCount = actualUserCount;
         }
@@ -1050,7 +1615,9 @@
 
                 if (typeof getWorldInfoFn === 'function' && currentChat && currentChat.length > 0) {
                     const chatForWI = currentChat.map(x => x.mes || x.message || x).filter(m => m && typeof m === 'string');
-                    const result = await getWorldInfoFn(chatForWI, 8000, false);
+                    // Use user-configured budget; 0 means "let SillyTavern decide" (pass a huge value so ST's own budget applies)
+                    const wiBudgetValue = (settings.wiBudget && settings.wiBudget > 0) ? settings.wiBudget : Number.MAX_SAFE_INTEGER;
+                    const result = await getWorldInfoFn(chatForWI, wiBudgetValue, false);
                     const worldInfoString = result?.worldInfoString || result;
 
                     if (worldInfoString && typeof worldInfoString === 'string' && worldInfoString.trim()) {
@@ -1092,8 +1659,11 @@ You are an excellent creator of fake chat feeds that react dynamically to the us
 
         // Build dynamic count instruction based on style type and mode
         let countInstruction = '';
-        if (!isNarratorStyle) {
-            if (settings.livestream) {
+        if (isNarratorStyle && settings.livestream && !showOverlay) {
+            // Narrator styles in livestream mode: single character but multiple messages
+            countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} messages. Not fewer, not more - exactly ${messageCount} messages from the same narrator/character.\n\n`;
+        } else if (!isNarratorStyle) {
+            if (settings.livestream && !showOverlay) {
                 countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} chat messages from EXACTLY ${actualUserCount} different users. Each user can post multiple messages. Not fewer, not more - exactly ${messageCount} messages from ${actualUserCount} users.\n\n`;
             } else {
                 countInstruction = `IMPORTANT: You MUST generate EXACTLY ${userCount} chat messages. Not fewer, not more - exactly ${userCount}.\n\n`;
@@ -1130,7 +1700,12 @@ You are an excellent creator of fake chat feeds that react dynamically to the us
         }
 
         // Build the final user prompt (instructions only, context is in chat history)
-        const instructionsPrompt = `</chat_history>
+        let userReplyContext = "";
+        if (window.lastEchoReply) {
+            userReplyContext = `\n\n<streamer_reply>\nIMPORTANT: The streamer (the user who controls this character) has just directly replied to the chat: "${window.lastEchoReply}". The chat reactions you generate MUST acknowledge and react to this reply. Some chatters should respond directly to the streamer's message.\n</streamer_reply>`;
+            window.lastEchoReply = null; // Clear it so it doesn't repeat
+        }
+        const instructionsPrompt = `</chat_history>${userReplyContext}
 
         <instructions>
 ${countInstruction}${stylePrompt}
@@ -1138,7 +1713,7 @@ ${countInstruction}${stylePrompt}
 
 <task>
 Based on the chat history above, generate fake chat feed reactions. Remember to think about them step-by-step first.
-STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : settings.livestream ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.
+STRICTLY follow the format defined in the instruction. ${isNarratorStyle && settings.livestream && !showOverlay ? `Output exactly ${messageCount} messages.` : isNarratorStyle ? '' : settings.livestream && !showOverlay ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.
 </task>`;
 
         // Calculate appropriate max_tokens based on message count
@@ -1416,9 +1991,9 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
             if (messageCount === 0) {
                 setDiscordText('<div class=\"discord_status\">No valid chat lines generated.</div>');
             } else {
-                // Check if livestream mode is enabled
-                if (settings.livestream) {
-                    // Parse individual messages for livestream
+                // Use livestream queue only for background auto-generation (not explicit regen)
+                if (settings.livestream && !showOverlay) {
+                    // Parse individual messages for livestream queue
                     const messages = parseLivestreamMessages(htmlBuffer);
                     console.warn('[EchoChamber] Livestream mode: queuing', messages.length, 'messages for display');
                     log('Livestream mode: queuing', messages.length, 'messages');
@@ -1427,31 +2002,41 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                     const lastMsgIndex = chat.length - 1;
                     const updatedCommentaries = { ...(messageCommentaries || {}) };
                     updatedCommentaries[lastMsgIndex] = cleanResult;
-                    // Save with fullGeneratedHtml for resume and mark livestream as not complete yet
-                    // generatedHtml starts empty since no messages displayed yet
                     saveGeneratedCommentary('', updatedCommentaries, htmlBuffer, false);
 
-                    // Start livestream display
+                    // Start livestream display — new messages will prepend on top of any
+                    // existing panel content (previous turns remain visible below new ones).
                     startLivestream(messages);
+
+                    // Generation phase complete. Switch indicator from orange (loading)
+                    // back to red (live/active). The queue will continue to drip messages.
+                    updateLiveIndicator();
                 } else {
-                    // Regular mode - display all at once
+                    // Regular mode OR explicit regen in livestream mode: display all at once.
+                    // If livestream was running, stop it cleanly first so the queue doesn't interfere.
+                    if (settings.livestream) stopLivestream();
+
                     setDiscordText(htmlBuffer);
 
                     // Save to metadata for persistence
                     const lastMsgIndex = chat.length - 1;
                     const updatedCommentaries = { ...(messageCommentaries || {}) };
-                    updatedCommentaries[lastMsgIndex] = cleanResult; // Store the raw commentary text
+                    updatedCommentaries[lastMsgIndex] = cleanResult;
                     saveGeneratedCommentary(htmlBuffer, updatedCommentaries);
                 }
             }
 
             // Mark generation as complete
             isGenerating = false;
+            updateReplyButtonState(false);
 
         } catch (err) {
             // Mark generation as complete (even on error)
             isGenerating = false;
-            setStatus('');
+            updateReplyButtonState(false);
+            // Only clear status overlay if we were using it (non-livestream or explicit overlay)
+            if (!settings.livestream || showOverlay) setStatus('');
+            if (settings.livestream && !showOverlay) updateLiveIndicator();
             const isAbort = err.name === 'AbortError' || err.message?.includes('aborted') || userCancelled;
             if (isAbort || userCancelled) {
                 // User cancelled - show toast notification, keep previous content
@@ -1477,40 +2062,109 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
     const STYLE_FILES = {
         'twitch': 'discordtwitch.md', 'verbose': 'thoughtfulverbose.md', 'twitter': 'twitterx.md', 'news': 'breakingnews.md',
         'mst3k': 'mst3k.md', 'nsfw_ava': 'nsfwava.md', 'nsfw_kai': 'nsfwkai.md', 'hypebot': 'hypebot.md',
-        'doomscrollers': 'doomscrollers.md', 'dumbanddumber': 'dumbanddumber.md', 'ao3wattpad': 'ao3wattpad.md'
+        'doomscrollers': 'doomscrollers.md', 'darkroast': 'darkroast.md', 'dumbanddumber': 'dumbanddumber.md', 'ao3wattpad': 'ao3wattpad.md'
     };
     const BUILT_IN_STYLES = [
         { val: 'twitch', label: 'Discord / Twitch' }, { val: 'verbose', label: 'Thoughtful' },
         { val: 'twitter', label: 'Twitter / X' }, { val: 'news', label: 'Breaking News' },
         { val: 'mst3k', label: 'MST3K' }, { val: 'nsfw_ava', label: 'Ava NSFW' },
         { val: 'nsfw_kai', label: 'Kai NSFW' }, { val: 'hypebot', label: 'HypeBot' },
-        { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'dumbanddumber', label: 'Dumb & Dumber' },
+        { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'darkroast', label: 'Dark Roast' },
+        { val: 'dumbanddumber', label: 'Dumb & Dumber' },
         { val: 'ao3wattpad', label: 'AO3 / Wattpad' }
     ];
 
+    // Default order: built-ins with nsfw_ava and nsfw_kai moved to the bottom (just above custom styles)
+    const DEFAULT_STYLE_ORDER = [
+        'twitch', 'verbose', 'twitter', 'news', 'mst3k',
+        'hypebot', 'doomscrollers', 'darkroast', 'dumbanddumber', 'ao3wattpad',
+        'nsfw_ava', 'nsfw_kai'
+    ];
+
     function getAllStyles() {
-        let styles = [...BUILT_IN_STYLES];
+        // Build a map of all available style id -> style object
+        const styleMap = {};
+        BUILT_IN_STYLES.forEach(s => { styleMap[s.val] = s; });
         if (settings.custom_styles) {
-            Object.keys(settings.custom_styles).forEach(id => styles.push({ val: id, label: settings.custom_styles[id].name }));
+            Object.keys(settings.custom_styles).forEach(id => {
+                styleMap[id] = { val: id, label: settings.custom_styles[id].name };
+            });
         }
-        if (settings.deleted_styles) styles = styles.filter(s => !settings.deleted_styles.includes(s.val));
-        return styles;
+
+        // Determine the order to use
+        const savedOrder = Array.isArray(settings.style_order) && settings.style_order.length
+            ? settings.style_order
+            : DEFAULT_STYLE_ORDER;
+
+        // Start with styles that appear in the saved order (skip deleted)
+        const result = [];
+        const seen = new Set();
+        for (const id of savedOrder) {
+            if (styleMap[id] && !(settings.deleted_styles && settings.deleted_styles.includes(id))) {
+                result.push(styleMap[id]);
+                seen.add(id);
+            }
+        }
+
+        // Append any remaining styles not yet in the order (e.g. newly added custom styles)
+        for (const id of Object.keys(styleMap)) {
+            if (!seen.has(id) && !(settings.deleted_styles && settings.deleted_styles.includes(id))) {
+                result.push(styleMap[id]);
+            }
+        }
+
+        return result;
+    }
+
+    // Reads the current visual order from the style editor list and saves it to settings.
+    function saveStyleOrder() {
+        const order = [];
+        jQuery('#ec_style_list .ec_style_item').each(function () {
+            const id = jQuery(this).data('id');
+            if (id) order.push(id);
+        });
+        if (order.length) {
+            settings.style_order = order;
+            saveSettings();
+        }
+    }
+
+    // Resolves SillyTavern macro tokens in a style prompt string.
+    // Called fresh every time a style is loaded so {{user}}/{{char}} always
+    // reflect the currently active persona and character.
+    function resolveMacros(text) {
+        if (!text) return text;
+        try {
+            const ctx = SillyTavern.getContext();
+            const userName = ctx.name1 || 'User';
+            const charName = ctx.characterName || ctx.name2 || 'Character';
+            return text
+                .replace(/\{\{user\}\}/gi, userName)
+                .replace(/\{\{char\}\}/gi, charName);
+        } catch (e) {
+            return text;
+        }
     }
 
     async function loadChatStyle(style) {
-        if (settings.custom_styles && settings.custom_styles[style]) return settings.custom_styles[style].prompt;
-        if (promptCache[style]) return promptCache[style];
-        const filename = STYLE_FILES[style] || 'discordtwitch.md';
-        try {
-            const response = await fetch(`${BASE_URL}/chat-styles/${filename}?v=${Date.now()}`);
-            if (!response.ok) throw new Error('Fetch failed');
-            const content = await response.text();
-            promptCache[style] = content;
-            return content;
-        } catch (e) {
-            warn('Failed to load style:', style, e);
-            return `Generate chat messages. Output: username: message`;
+        let prompt;
+        if (settings.custom_styles && settings.custom_styles[style]) {
+            prompt = settings.custom_styles[style].prompt;
+        } else if (promptCache[style]) {
+            prompt = promptCache[style];
+        } else {
+            const filename = STYLE_FILES[style] || 'discordtwitch.md';
+            try {
+                const response = await fetch(`${BASE_URL}/chat-styles/${filename}?v=${Date.now()}`);
+                if (!response.ok) throw new Error('Fetch failed');
+                prompt = await response.text();
+                promptCache[style] = prompt; // cache raw text; macros resolved at call time
+            } catch (e) {
+                warn('Failed to load style:', style, e);
+                prompt = `Generate chat messages. Output: username: message`;
+            }
         }
+        return resolveMacros(prompt);
     }
 
     // ============================================================
@@ -1571,6 +2225,8 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         jQuery('#discord_include_character_description').prop('checked', settings.includeCharacterDescription || false);
         jQuery('#discord_include_summary').prop('checked', settings.includeSummary || false);
         jQuery('#discord_include_world_info').prop('checked', settings.includeWorldInfo || false);
+        jQuery('#discord_wi_budget').val(settings.wiBudget || 0);
+        jQuery('#discord_wi_budget_container').toggle(settings.includeWorldInfo || false);
 
         // Livestream settings
         jQuery('#discord_livestream').prop('checked', settings.livestream || false);
@@ -1591,6 +2247,14 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
 
         // Show/hide context depth based on include user input setting
         jQuery('#discord_context_depth_container').toggle(settings.includeUserInput);
+
+        // Chat Participation settings
+        jQuery('#discord_chat_enabled').prop('checked', settings.chatEnabled !== false);
+        jQuery('#discord_chat_username').val(settings.chatUsername || 'Streamer (You)');
+        jQuery('#discord_chat_avatar_color').val(settings.chatAvatarColor || '#3b82f6');
+        jQuery('#discord_chat_reply_count').val(settings.chatReplyCount || 3);
+        jQuery('.ec_reply_container').toggle(settings.chatEnabled !== false);
+        applyAvatarColor(settings.chatAvatarColor || '#3b82f6');
 
         applyFontSize(settings.fontSize || 15);
         updateSourceVisibility();
@@ -1680,11 +2344,12 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 <div class="ec_modal_body">
                     <div class="ec_style_sidebar">
                         <div class="ec_style_sidebar_header">
-                            <button class="menu_button" id="ec_style_new" title="Create New Style">
-                                <i class="fa-solid fa-plus"></i> New
+                            <button class="menu_button ec_btn_new_style" id="ec_style_new" title="Create New Style">
+                                <i class="fa-solid fa-plus"></i> <span>New</span>
                             </button>
                         </div>
                         <div class="ec_style_list" id="ec_style_list"></div>
+                        <div class="ec_style_order_hint"><i class="fa-solid fa-grip-vertical"></i> Drag to reorder</div>
                     </div>
                     <div class="ec_style_main" id="ec_style_main">
                         <div class="ec_empty_state">
@@ -1698,14 +2363,16 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         <button class="menu_button ec_btn_danger" id="ec_style_delete" style="display:none;">
                             <i class="fa-solid fa-trash"></i> Delete
                         </button>
-                        <button class="menu_button" id="ec_style_export" style="display:none;">
+                        <button class="menu_button ec_btn_export" id="ec_style_export" style="display:none;">
                             <i class="fa-solid fa-download"></i> Export
                         </button>
                     </div>
                     <div class="ec_modal_footer_right">
-                        <button class="menu_button" id="ec_style_cancel">Cancel</button>
-                        <button class="menu_button ec_btn_primary" id="ec_style_save" style="display:none;">
-                            <i class="fa-solid fa-save"></i> Save
+                        <button class="menu_button ec_btn_cancel" id="ec_style_cancel">
+                            <i class="fa-solid fa-xmark"></i> Cancel
+                        </button>
+                        <button class="menu_button ec_btn_save" id="ec_style_save" style="display:none;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save
                         </button>
                     </div>
                 </div>
@@ -1749,28 +2416,89 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         list.empty();
 
         const styles = getAllStyles();
-        const builtInIds = BUILT_IN_STYLES.map(s => s.val);
+        const { DOMPurify } = SillyTavern.libs;
 
         styles.forEach(style => {
-            const isBuiltIn = builtInIds.includes(style.val);
             const isCustom = settings.custom_styles && settings.custom_styles[style.val];
             const typeClass = isCustom ? 'custom' : 'builtin';
             const icon = isCustom ? 'fa-user' : 'fa-cube';
 
             // Sanitize style label to prevent XSS
-            const { DOMPurify } = SillyTavern.libs;
             const safeLabel = DOMPurify.sanitize(style.label, { ALLOWED_TAGS: [] });
             const safeVal = DOMPurify.sanitize(style.val, { ALLOWED_TAGS: [] });
 
             const item = jQuery(`
-                <div class="ec_style_item ${typeClass}" data-id="${safeVal}">
-                    <i class="fa-solid ${icon}"></i>
-                    <span>${safeLabel}</span>
+                <div class="ec_style_item ${typeClass}" data-id="${safeVal}" draggable="true">
+                    <span class="ec_drag_handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>
+                    <i class="fa-solid ${icon} ec_style_type_icon"></i>
+                    <span class="ec_style_label">${safeLabel}</span>
                 </div>
             `);
 
-            item.on('click', () => selectStyleInEditor(style.val));
+            // Click on the item (but not the drag handle) selects it
+            item.on('click', function (e) {
+                if (!jQuery(e.target).closest('.ec_drag_handle').length) {
+                    selectStyleInEditor(style.val);
+                }
+            });
+
             list.append(item);
+        });
+
+        // --- Drag-and-drop reordering ---
+        let dragSrc = null;
+
+        list.find('.ec_style_item').each(function () {
+            const el = this;
+
+            el.addEventListener('dragstart', function (e) {
+                dragSrc = el;
+                el.classList.add('ec_dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', el.dataset.id);
+            });
+
+            el.addEventListener('dragend', function () {
+                el.classList.remove('ec_dragging');
+                list.find('.ec_style_item').removeClass('ec_drag_over');
+                saveStyleOrder();
+                // Refresh the dropdowns so the new order is reflected immediately
+                updateAllDropdowns();
+            });
+
+            el.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (el !== dragSrc) {
+                    list.find('.ec_style_item').removeClass('ec_drag_over');
+                    el.classList.add('ec_drag_over');
+                }
+            });
+
+            el.addEventListener('dragleave', function () {
+                el.classList.remove('ec_drag_over');
+            });
+
+            el.addEventListener('drop', function (e) {
+                e.preventDefault();
+                el.classList.remove('ec_drag_over');
+                if (!dragSrc || dragSrc === el) return;
+
+                // Insert dragSrc before or after this element based on pointer position
+                const rect = el.getBoundingClientRect();
+                const midY = rect.top + rect.height / 2;
+                if (e.clientY < midY) {
+                    list[0].insertBefore(dragSrc, el);
+                } else {
+                    list[0].insertBefore(dragSrc, el.nextSibling);
+                }
+
+                // Restore active state if needed
+                if (currentEditingStyle) {
+                    jQuery('.ec_style_item').removeClass('active');
+                    jQuery(`.ec_style_item[data-id="${currentEditingStyle}"]`).addClass('active');
+                }
+            });
         });
     }
 
@@ -1795,13 +2523,30 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         const style = getAllStyles().find(s => s.val === styleId);
         const styleName = style ? style.label : styleId;
 
-        // Load content
+        // Load content (raw, before macro substitution so the editor shows the original tokens)
         let content = '';
         if (isCustom) {
             content = settings.custom_styles[styleId].prompt || '';
         } else {
-            content = await loadChatStyle(styleId);
+            // Load raw from cache/fetch without resolving macros so tokens stay visible in editor
+            const filename = STYLE_FILES[styleId] || 'discordtwitch.md';
+            try {
+                if (promptCache[styleId]) {
+                    content = promptCache[styleId];
+                } else {
+                    const resp = await fetch(`${BASE_URL}/chat-styles/${filename}?v=${Date.now()}`);
+                    content = resp.ok ? await resp.text() : '';
+                    if (content) promptCache[styleId] = content;
+                }
+            } catch (e) {
+                content = '';
+            }
         }
+
+        // Resolve macro preview values for the hint bar
+        const ctx = SillyTavern.getContext();
+        const previewUser = ctx.name1 || 'User';
+        const previewChar = ctx.characterName || ctx.name2 || 'Character';
 
         // Escape styleName for safe HTML insertion
         const safeStyleName = styleName.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1815,6 +2560,11 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
             </div>
             <textarea class="ec_style_textarea" id="ec_style_content"
                       placeholder="Enter the prompt/instructions for this style..."></textarea>
+            <div style="font-size:0.75em; opacity:0.65; margin-top:6px; padding:6px 8px; background:rgba(0,0,0,0.15); border-radius:4px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span><i class="fa-solid fa-code" style="margin-right:4px;"></i><b>Macros:</b></span>
+                <span><code style="background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:3px;">{{user}}</code> → <em>${previewUser}</em></span>
+                <span><code style="background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:3px;">{{char}}</code> → <em>${previewChar}</em></span>
+            </div>
         `);
 
         // Set textarea content safely (avoids HTML parsing issues with special characters)
@@ -1968,15 +2718,22 @@ username: message
                             </div>
                             <textarea id="ec_tpl_adv_prompt" placeholder="Write your complete system prompt here..."></textarea>
                             <small>The extension will prepend "Generate X messages" based on user count setting.</small>
+                            <div style="font-size:0.75em; opacity:0.65; margin-top:6px; padding:6px 8px; background:rgba(0,0,0,0.15); border-radius:4px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <span><i class="fa-solid fa-code" style="margin-right:4px;"></i><b>Macros:</b></span>
+                                <span><code style="background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:3px;">{{user}}</code> &rarr; <em id="ec_tpl_adv_user_preview">?</em></span>
+                                <span><code style="background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:3px;">{{char}}</code> &rarr; <em id="ec_tpl_adv_char_preview">?</em></span>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="ec_modal_footer">
                     <div class="ec_modal_footer_left"></div>
                     <div class="ec_modal_footer_right">
-                        <button class="menu_button" id="ec_template_cancel">Cancel</button>
-                        <button class="menu_button ec_btn_primary" id="ec_template_create">
-                            <i class="fa-solid fa-plus"></i> Create
+                        <button class="menu_button ec_btn_cancel" id="ec_template_cancel">
+                            <i class="fa-solid fa-xmark"></i> Cancel
+                        </button>
+                        <button class="menu_button ec_btn_create" id="ec_template_create">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Create
                         </button>
                     </div>
                 </div>
@@ -2056,6 +2813,13 @@ username: message
 
         // Pre-populate Advanced mode with template
         jQuery('#ec_tpl_adv_prompt').val(defaultAdvancedTemplate);
+
+        // Populate macro preview values with current character/persona names
+        try {
+            const ctx = SillyTavern.getContext();
+            jQuery('#ec_tpl_adv_user_preview').text(ctx.name1 || 'User');
+            jQuery('#ec_tpl_adv_char_preview').text(ctx.characterName || ctx.name2 || 'Character');
+        } catch (e) { /* context may not be ready */ }
 
         // Reset to Easy tab
         templateCreatorModal.find('.ec_tab_btn').removeClass('active').first().addClass('active');
@@ -2314,6 +3078,668 @@ username: message
     }
 
     // ============================================================
+    // SETTINGS MODAL
+    // ============================================================
+
+    function openSettingsModal() {
+        // Remove any existing modal
+        jQuery('#ec_settings_modal').remove();
+
+        // Hide floating panel on mobile when opening settings modal
+        const isMobileDevice = window.innerWidth <= 768;
+        if (isMobileDevice && floatingPanelOpen) {
+            jQuery('#ec_floating_panel').hide();
+        }
+
+        const styles = getAllStyles();
+        const s = settings;
+
+        // Build style options
+        const styleOptions = styles.map(st =>
+            `<option value="${st.val}"${s.style === st.val ? ' selected' : ''}>${st.label}</option>`
+        ).join('');
+
+        // Build source options with sub-panel visibility
+        const ollamaVisible = s.source === 'ollama' ? '' : 'display:none;';
+        const openaiVisible = s.source === 'openai' ? '' : 'display:none;';
+        const profileVisible = s.source === 'profile' ? '' : 'display:none;';
+        const contextDepthVisible = s.includeUserInput ? '' : 'display:none;';
+        const wibudgetVisible = s.includeWorldInfo ? '' : 'display:none;';
+        const livestreamVisible = s.livestream ? '' : 'display:none;';
+
+        const modal = jQuery(`
+<div id="ec_settings_modal" role="dialog" aria-modal="true" aria-label="EchoChamber Settings">
+  <div class="ecm_backdrop"></div>
+  <div class="ecm_card">
+
+    <div class="ecm_header">
+      <div class="ecm_header_title"><i class="fa-solid fa-gear"></i> EchoChamber Settings</div>
+      <div class="ecm_close_btn" id="ecm_close" title="Close"><i class="fa-solid fa-xmark"></i></div>
+    </div>
+
+    <div class="ecm_layout">
+
+      <!-- SIDEBAR (desktop only) -->
+      <nav class="ecm_sidebar" aria-label="Settings navigation">
+        <ul class="ecm_nav_list">
+          <li><a class="ecm_nav_item" data-target="ecm-sect-general" role="button" tabindex="0">
+            <i class="fa-solid fa-power-off"></i><span>General</span>
+          </a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-engine" role="button" tabindex="0">
+            <i class="fa-solid fa-microchip"></i><span>Generation Engine</span>
+          </a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-display" role="button" tabindex="0">
+            <i class="fa-solid fa-sliders"></i><span>Display</span>
+          </a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-content" role="button" tabindex="0">
+            <i class="fa-solid fa-list-check"></i><span>Content Settings</span>
+          </a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-livestream" role="button" tabindex="0">
+            <i class="fa-solid fa-tower-broadcast"></i><span>Livestream</span>
+          </a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-chat" role="button" tabindex="0">
+            <i class="fa-solid fa-reply"></i><span>Chat Participation</span>
+          </a></li>
+        </ul>
+      </nav>
+
+      <!-- RIGHT CONTENT PANE -->
+      <div class="ecm_content" id="ecm_content_pane">
+
+        <!-- GENERAL -->
+         <section class="ecm_section ecm_acc" data-acc-open id="ecm-sect-general">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-power-off"></i> General</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <label class="ecm_row ecm_toggle_row" for="ecm_enabled">
+              <span class="ecm_label">Enable EchoChamber</span>
+              <input id="ecm_enabled" type="checkbox" class="ecm_toggle"${s.enabled ? ' checked' : ''}>
+            </label>
+          </div>
+        </section>
+
+        <!-- GENERATION ENGINE -->
+        <section class="ecm_section ecm_acc" id="ecm-sect-engine">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-microchip"></i> Generation Engine</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_source">Source</label>
+              <select id="ecm_source" class="ecm_select">
+                <option value="default"${s.source === 'default' ? ' selected' : ''}>Default (Main API)</option>
+                <option value="profile"${s.source === 'profile' ? ' selected' : ''}>Connection Profile</option>
+                <option value="ollama"${s.source === 'ollama' ? ' selected' : ''}>Ollama (Local)</option>
+                <option value="openai"${s.source === 'openai' ? ' selected' : ''}>OpenAI Compatible</option>
+              </select>
+            </div>
+            <div id="ecm_ollama_settings" class="ecm_subpanel ecm_subpanel_green" style="${ollamaVisible}">
+              <div class="ecm_subpanel_title"><i class="fa-solid fa-terminal"></i> Ollama</div>
+              <input id="ecm_url" type="text" class="ecm_input ecm_input_gap" placeholder="http://localhost:11434" value="${s.url || ''}">
+              <select id="ecm_model_select" class="ecm_select"></select>
+              <div id="ecm_ollama_status" class="ecm_hint"></div>
+            </div>
+            <div id="ecm_openai_settings" class="ecm_subpanel ecm_subpanel_blue" style="${openaiVisible}">
+              <div class="ecm_subpanel_title"><i class="fa-solid fa-cloud"></i> OpenAI Compatible</div>
+              <select id="ecm_openai_preset" class="ecm_select ecm_input_gap">
+                <option value="custom"${s.openai_preset === 'custom' ? ' selected' : ''}>Custom</option>
+                <option value="lmstudio"${s.openai_preset === 'lmstudio' ? ' selected' : ''}>LM Studio (:1234)</option>
+                <option value="kobold"${s.openai_preset === 'kobold' ? ' selected' : ''}>KoboldCPP (:5001)</option>
+                <option value="textgen"${s.openai_preset === 'textgen' ? ' selected' : ''}>TextGenWebUI (:5000)</option>
+                <option value="vllm"${s.openai_preset === 'vllm' ? ' selected' : ''}>vLLM (:8000)</option>
+              </select>
+              <input id="ecm_openai_url" type="text" class="ecm_input ecm_input_gap" placeholder="http://localhost:1234/v1" value="${s.openai_url || ''}">
+              <input id="ecm_openai_key" type="password" class="ecm_input ecm_input_gap" placeholder="API Key (Optional)" value="${s.openai_key || ''}">
+              <input id="ecm_openai_model" type="text" class="ecm_input" placeholder="Model name" value="${s.openai_model || ''}">
+            </div>
+            <div id="ecm_profile_settings" class="ecm_subpanel ecm_subpanel_purple" style="${profileVisible}">
+              <div class="ecm_subpanel_title"><i class="fa-solid fa-link"></i> Connection Profile</div>
+              <select id="ecm_preset_select" class="ecm_select"></select>
+              <div class="ecm_hint"><i class="fa-solid fa-shield-halved"></i> Uses your existing ST credentials securely.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- DISPLAY -->
+         <section class="ecm_section ecm_acc" id="ecm-sect-display">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-sliders"></i> Display</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_style">Style</label>
+              <select id="ecm_style" class="ecm_select">${styleOptions}</select>
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_position">Position</label>
+              <select id="ecm_position" class="ecm_select">
+                <option value="bottom"${s.position === 'bottom' ? ' selected' : ''}>Bottom</option>
+                <option value="top"${s.position === 'top' ? ' selected' : ''}>Top</option>
+                <option value="left"${s.position === 'left' ? ' selected' : ''}>Left</option>
+                <option value="right"${s.position === 'right' ? ' selected' : ''}>Right</option>
+              </select>
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_user_count">Users</label>
+              <select id="ecm_user_count" class="ecm_select">
+                <!-- Generating options 1-20 inline -->
+                ${Array.from({ length: 20 }, (_, i) => i + 1).map(n => `<option value="${n}"${(s.userCount || 5) == n ? ' selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_font_size">Font Size (px)</label>
+              <select id="ecm_font_size" class="ecm_select">
+                <!-- Generating options 8-24 inline -->
+                ${Array.from({ length: 17 }, (_, i) => i + 8).map(n => `<option value="${n}"${(s.fontSize || 15) == n ? ' selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_opacity">Opacity <span id="ecm_opacity_val">${s.opacity || 85}%</span></label>
+              <input id="ecm_opacity" type="range" class="ecm_slider" min="10" max="100" step="5" value="${s.opacity || 85}">
+            </div>
+          </div>
+        </section>
+
+        <!-- CONTENT SETTINGS -->
+         <section class="ecm_section ecm_acc" id="ecm-sect-content">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-list-check"></i> Content Settings</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <label class="ecm_row ecm_toggle_row" for="ecm_auto_update">
+              <span class="ecm_label"><i class="fa-solid fa-sync ecm_icon"></i> Auto-update On Messages</span>
+              <input id="ecm_auto_update" type="checkbox" class="ecm_toggle"${s.autoUpdateOnMessages !== false ? ' checked' : ''}>
+            </label>
+            <label class="ecm_row ecm_toggle_row" for="ecm_include_user">
+              <span class="ecm_label"><i class="fa-solid fa-comments ecm_icon"></i> Include Chat History</span>
+              <input id="ecm_include_user" type="checkbox" class="ecm_toggle"${s.includeUserInput ? ' checked' : ''}>
+            </label>
+            <div id="ecm_context_depth_container" class="ecm_subrow" style="${contextDepthVisible}">
+              <label class="ecm_label" for="ecm_context_depth">Context Depth</label>
+              <input id="ecm_context_depth" type="number" class="ecm_input ecm_input_sm" min="2" max="20" value="${s.contextDepth || 4}">
+            </div>
+            <label class="ecm_row ecm_toggle_row" for="ecm_include_past_echo">
+              <span class="ecm_label"><i class="fa-solid fa-layer-group ecm_icon"></i> Include Past EchoChambers</span>
+              <input id="ecm_include_past_echo" type="checkbox" class="ecm_toggle"${s.includePastEchoChambers ? ' checked' : ''}>
+            </label>
+            <div class="ecm_subpanel_plain">
+              <div class="ecm_subpanel_title"><i class="fa-solid fa-file-lines"></i> Include in Context</div>
+              <label class="ecm_row ecm_toggle_row" for="ecm_include_persona">
+                <span class="ecm_label"><i class="fa-solid fa-face-smile ecm_icon"></i> Persona</span>
+                <input id="ecm_include_persona" type="checkbox" class="ecm_toggle"${s.includePersona ? ' checked' : ''}>
+              </label>
+              <label class="ecm_row ecm_toggle_row" for="ecm_include_character_description">
+                <span class="ecm_label"><i class="fa-solid fa-address-card ecm_icon"></i> Character Description(s)</span>
+                <input id="ecm_include_character_description" type="checkbox" class="ecm_toggle"${s.includeCharacterDescription ? ' checked' : ''}>
+              </label>
+              <label class="ecm_row ecm_toggle_row" for="ecm_include_summary">
+                <span class="ecm_label"><i class="fa-solid fa-scroll ecm_icon"></i> Summary (from Summarize ext.)</span>
+                <input id="ecm_include_summary" type="checkbox" class="ecm_toggle"${s.includeSummary ? ' checked' : ''}>
+              </label>
+              <label class="ecm_row ecm_toggle_row" for="ecm_include_world_info">
+                <span class="ecm_label"><i class="fa-solid fa-globe ecm_icon"></i> World Info / Lorebook</span>
+                <input id="ecm_include_world_info" type="checkbox" class="ecm_toggle"${s.includeWorldInfo ? ' checked' : ''}>
+              </label>
+              <div id="ecm_wi_budget_container" class="ecm_subrow" style="${wibudgetVisible}">
+                <label class="ecm_label" for="ecm_wi_budget"><i class="fa-solid fa-coins ecm_icon"></i> WI Token Budget</label>
+                <input id="ecm_wi_budget" type="number" class="ecm_input ecm_input_sm" min="0" max="200000" step="1000" value="${s.wiBudget || 0}">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- LIVESTREAM -->
+        <section class="ecm_section ecm_acc" id="ecm-sect-livestream">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-tower-broadcast"></i> Livestream</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <label class="ecm_row ecm_toggle_row" for="ecm_livestream">
+              <span class="ecm_label">Enable Livestream Mode</span>
+              <input id="ecm_livestream" type="checkbox" class="ecm_toggle"${s.livestream ? ' checked' : ''}>
+            </label>
+            <div id="ecm_livestream_settings" style="${livestreamVisible}">
+              <div class="ecm_row">
+                <label class="ecm_label" for="ecm_livestream_batch_size"><i class="fa-solid fa-boxes-stacked ecm_icon"></i> Batch Size</label>
+                <input id="ecm_livestream_batch_size" type="number" class="ecm_input ecm_input_sm" min="5" max="50" value="${s.livestreamBatchSize || 20}">
+              </div>
+              <div class="ecm_row">
+                <label class="ecm_label" for="ecm_livestream_min_wait"><i class="fa-solid fa-clock ecm_icon"></i> Min Wait (s)</label>
+                <input id="ecm_livestream_min_wait" type="number" class="ecm_input ecm_input_sm" min="1" max="120" value="${s.livestreamMinWait || 5}">
+              </div>
+              <div class="ecm_row">
+                <label class="ecm_label" for="ecm_livestream_max_wait"><i class="fa-solid fa-clock ecm_icon"></i> Max Wait (s)</label>
+                <input id="ecm_livestream_max_wait" type="number" class="ecm_input ecm_input_sm" min="1" max="300" value="${s.livestreamMaxWait || 60}">
+              </div>
+              <div class="ecm_subpanel_plain">
+                <div class="ecm_subpanel_title"><i class="fa-solid fa-clapperboard"></i> Generation Mode</div>
+                <label class="ecm_radio_row" for="ecm_ls_manual">
+                   <input type="radio" id="ecm_ls_manual" name="ecm_livestream_mode" value="manual"${(s.livestreamMode || 'manual') === 'manual' ? ' checked' : ''}><span>Manual (Regenerate Chat)</span>
+                 </label>
+                 <label class="ecm_radio_row" for="ecm_ls_onmessage">
+                   <input type="radio" id="ecm_ls_onmessage" name="ecm_livestream_mode" value="onMessage"${s.livestreamMode === 'onMessage' ? ' checked' : ''}><span>On New Message</span>
+                 </label>
+                 <label class="ecm_radio_row" for="ecm_ls_oncomplete">
+                   <input type="radio" id="ecm_ls_oncomplete" name="ecm_livestream_mode" value="onComplete"${s.livestreamMode === 'onComplete' ? ' checked' : ''}><span>After Batch Completes</span>
+                 </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CHAT PARTICIPATION -->
+        <section class="ecm_section ecm_acc" id="ecm-sect-chat">
+          <button class="ecm_acc_header" aria-expanded="false" type="button">
+            <span class="ecm_acc_title"><i class="fa-solid fa-reply"></i> Chat Participation</span>
+            <i class="ecm_acc_chevron fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="ecm_acc_body" hidden>
+            <label class="ecm_row ecm_toggle_row" for="ecm_chat_enabled">
+              <span class="ecm_label">Enable Chat Participation</span>
+              <input id="ecm_chat_enabled" type="checkbox" class="ecm_toggle"${s.chatEnabled !== false ? ' checked' : ''}>
+            </label>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_chat_username"><i class="fa-solid fa-user ecm_icon"></i> Your Username</label>
+              <input id="ecm_chat_username" type="text" class="ecm_input" placeholder="Streamer (You)" value="${s.chatUsername || 'Streamer (You)'}">
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_chat_avatar_color"><i class="fa-solid fa-circle ecm_icon"></i> Avatar Color</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input id="ecm_chat_avatar_color" type="color" class="ecm_color_input" value="${s.chatAvatarColor || '#3b82f6'}" style="width:44px;height:36px;padding:2px;border-radius:6px;border:1px solid var(--ec-border);cursor:pointer;background:transparent;">
+                <span class="ecm_hint" style="margin:0;">Your avatar circle color</span>
+              </div>
+            </div>
+            <div class="ecm_row">
+              <label class="ecm_label" for="ecm_chat_reply_count"><i class="fa-solid fa-comments ecm_icon"></i> AI Replies per Comment</label>
+              <input id="ecm_chat_reply_count" type="number" class="ecm_input" min="1" max="12" value="${s.chatReplyCount || 3}" style="width:70px;">
+            </div>
+            <div class="ecm_hint">Number of AI responses after a general comment (1–12). Direct @mentions always get a single reply.</div>
+          </div>
+        </section>
+
+      </div><!-- /ecm_content -->
+    </div><!-- /ecm_layout -->
+
+    <div class="ecm_footer">
+      <div class="ecm_footer_left">
+        <button class="ecm_footer_btn" id="ecm_style_manager_btn"><i class="fa-solid fa-palette"></i> Style Manager</button>
+        <button class="ecm_footer_btn" id="ecm_import_btn"><i class="fa-solid fa-file-import"></i> Import</button>
+        <input type="file" id="ecm_import_file" accept=".md" style="display:none;">
+      </div>
+      <div class="ecm_footer_right">
+        <button class="ecm_done_btn" id="ecm_done"><i class="fa-solid fa-check"></i> Done</button>
+      </div>
+    </div>
+
+  </div><!-- /ecm_card -->
+</div>`);
+
+        jQuery('body').append(modal);
+
+
+        // Populate Ollama model select from existing settings panel
+        const existingModels = jQuery('#discord_model_select option');
+        existingModels.each(function () {
+            const opt = jQuery(this).clone();
+            if (jQuery(this).val() === s.model) opt.prop('selected', true);
+            jQuery('#ecm_model_select').append(opt);
+        });
+
+        // Populate connection profile select from existing settings panel
+        const existingProfiles = jQuery('#discord_preset_select option');
+        existingProfiles.each(function () {
+            const opt = jQuery(this).clone();
+            if (jQuery(this).val() === s.preset) opt.prop('selected', true);
+            jQuery('#ecm_preset_select').append(opt);
+        });
+
+        // Show/animate in
+        requestAnimationFrame(() => {
+            modal.addClass('ecm_visible');
+
+            // Mobile: force explicit viewport sizing to fix iOS/Android modal display issues
+            // (same fix used in SillyTavern-Larson for its settings overlay)
+            if (window.innerWidth <= 768) {
+                const modalEl = modal[0];
+                const cardEl = modal.find('.ecm_card')[0];
+                const layoutEl = modal.find('.ecm_layout')[0];
+                if (modalEl) {
+                    modalEl.style.height = '100dvh';
+                    modalEl.style.width = '100%';
+                    modalEl.style.inset = '0';
+                    modalEl.style.display = 'flex';
+                    modalEl.style.alignItems = 'center';
+                    modalEl.style.justifyContent = 'center';
+                }
+                if (cardEl) {
+                    cardEl.style.position = 'relative';
+                    cardEl.style.top = 'auto';
+                    cardEl.style.left = 'auto';
+                    cardEl.style.bottom = 'auto';
+                    cardEl.style.right = 'auto';
+                    cardEl.style.transform = 'none';
+                    cardEl.style.margin = 'auto';
+                    cardEl.style.maxHeight = '90dvh';
+                    cardEl.style.overflowY = 'auto';
+                    cardEl.style.overflowX = 'hidden';
+                }
+                if (layoutEl) {
+                    // Layout uses CSS flex scrolling on mobile - no override needed
+                }
+            }
+        });
+
+        // ---- Event Bindings ----
+
+        // Close handlers (click + touchend for mobile)
+        modal.find('.ecm_backdrop, #ecm_close, #ecm_done').on('click touchend', function (e) {
+            if (e.type === 'touchend') e.preventDefault();
+            closeSettingsModal();
+        });
+        // Stop click propagation on card so backdrop click-to-close doesn't fire when clicking inside
+        modal.find('.ecm_card').on('click', e => e.stopPropagation());
+
+        // Style Manager button — close settings modal then open style editor
+        modal.find('#ecm_style_manager_btn').on('click', function () {
+            closeSettingsModal();
+            setTimeout(() => openStyleEditor(), 320);
+        });
+
+        // Import button — trigger the hidden file input
+        modal.find('#ecm_import_btn').on('click', function () {
+            modal.find('#ecm_import_file').click();
+        });
+
+        // Import file selected — same logic as settings panel import
+        modal.find('#ecm_import_file').on('change', function () {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const content = e.target.result;
+                const name = file.name.replace(/\.md$/i, '');
+                const id = 'custom_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+                if (!settings.custom_styles) settings.custom_styles = {};
+                settings.custom_styles[id] = { name: name, prompt: content };
+                saveSettings();
+                updateAllDropdowns();
+                if (typeof toastr !== 'undefined') toastr.success(`Imported style: ${name}`);
+            };
+            reader.readAsText(file);
+            this.value = '';
+        });
+
+        // Escape key
+        jQuery(document).on('keydown.ecm', function (e) {
+            if (e.key === 'Escape') closeSettingsModal();
+        });
+
+        // ---- Two-pane vs accordion depending on viewport ----
+        const isMobile = () => window.innerWidth <= 768;
+        const contentPane = modal.find('#ecm_content_pane')[0];
+
+        if (!isMobile()) {
+            // DESKTOP: reveal all section bodies immediately
+            modal.find('.ecm_acc_body').each(function () { this.hidden = false; });
+
+            // ---- Sidebar navigation ----
+            const navItems = modal.find('.ecm_nav_item');
+            navItems.first().addClass('ecm_nav_active');
+            let isAutoScrolling = false;
+            let scrollTimeout;
+
+            navItems.on('click', function (e) {
+                e.preventDefault();
+                const target = this.dataset.target;
+                const sect = document.getElementById(target);
+                if (sect && contentPane) {
+                    isAutoScrolling = true;
+                    navItems.removeClass('ecm_nav_active');
+                    jQuery(this).addClass('ecm_nav_active');
+
+                    sect.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(() => {
+                        isAutoScrolling = false;
+                    }, 800); // Re-enable observer after smooth scroll completes
+                }
+            });
+
+            // ---- ScrollSpy via IntersectionObserver ----
+            if (contentPane && window.IntersectionObserver) {
+                const sects = modal.find('.ecm_section[id]').toArray();
+                const spy = new IntersectionObserver((entries) => {
+                    if (isAutoScrolling) return; // Skip highlights if manually clicked nav
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const id = entry.target.id;
+                            navItems.removeClass('ecm_nav_active');
+                            modal.find(`.ecm_nav_item[data-target="${id}"]`).addClass('ecm_nav_active');
+                        }
+                    });
+                }, { root: contentPane, rootMargin: '-5% 0px -80% 0px', threshold: 0 });
+                sects.forEach(s => spy.observe(s));
+                // Disconnect when modal closes
+                modal.on('ecm:close', () => spy.disconnect());
+            }
+        } else {
+            // MOBILE: accordion — open data-acc-open sections by default
+            modal.find('.ecm_acc[data-acc-open]').each(function () {
+                const btn = jQuery(this).find('.ecm_acc_header')[0];
+                const body = jQuery(this).find('.ecm_acc_body')[0];
+                if (btn && body) { btn.setAttribute('aria-expanded', 'true'); body.hidden = false; }
+            });
+            // Accordion toggle handler (mobile only) — click + touchend for mobile
+            modal.find('.ecm_acc_header').on('click touchend', function (e) {
+                if (e.type === 'touchend') e.preventDefault();
+                const expanded = this.getAttribute('aria-expanded') === 'true';
+                const body = this.nextElementSibling;
+                // On phones (≤480px) close all other open sections before opening a new one
+                if (!expanded && window.innerWidth <= 480) {
+                    modal.find('.ecm_acc_header[aria-expanded="true"]').each(function () {
+                        if (this !== e.currentTarget) {
+                            this.setAttribute('aria-expanded', 'false');
+                            if (this.nextElementSibling) this.nextElementSibling.hidden = true;
+                        }
+                    });
+                }
+                this.setAttribute('aria-expanded', String(!expanded));
+                if (body) body.hidden = expanded;
+            });
+        }
+
+
+        // Helper: sync a settings-panel element after modal change
+        function syncToPanel(panelId, value, isProp = false) {
+            const el = jQuery(`#${panelId} `);
+            if (!el.length) return;
+            if (isProp) el.prop('checked', value).trigger('change');
+            else el.val(value).trigger('change');
+        }
+
+        // General
+        modal.on('change', '#ecm_enabled', function () {
+            syncToPanel('discord_enabled', this.checked, true);
+        });
+
+        // Generation Engine
+        modal.on('change', '#ecm_source', function () {
+            syncToPanel('discord_source', jQuery(this).val());
+            // Show/hide sub-panels
+            const src = jQuery(this).val();
+            modal.find('#ecm_ollama_settings').toggle(src === 'ollama');
+            modal.find('#ecm_openai_settings').toggle(src === 'openai');
+            modal.find('#ecm_profile_settings').toggle(src === 'profile');
+        });
+        modal.on('change', '#ecm_url', function () { syncToPanel('discord_url', jQuery(this).val()); });
+        modal.on('change', '#ecm_model_select', function () { syncToPanel('discord_model_select', jQuery(this).val()); });
+        modal.on('change', '#ecm_openai_preset', function () { syncToPanel('discord_openai_preset', jQuery(this).val()); });
+        modal.on('change', '#ecm_openai_url', function () { syncToPanel('discord_openai_url', jQuery(this).val()); });
+        modal.on('change', '#ecm_openai_key', function () { syncToPanel('discord_openai_key', jQuery(this).val()); });
+        modal.on('change', '#ecm_openai_model', function () { syncToPanel('discord_openai_model', jQuery(this).val()); });
+        modal.on('change', '#ecm_preset_select', function () { syncToPanel('discord_preset_select', jQuery(this).val()); });
+
+        // Display
+        modal.on('change', '#ecm_style', function () {
+            const val = jQuery(this).val();
+            settings.style = val;
+            saveSettings();
+            updateStyleIndicator();
+            jQuery('#discord_style').val(val);
+            // Also update panel style menu selection
+            jQuery('.ec_menu_item[data-val]').each(function () {
+                const mi = jQuery(this);
+                const inStyleMenu = mi.closest('.ec_style_menu').length > 0;
+                if (inStyleMenu) mi.toggleClass('selected', mi.data('val') === val);
+            });
+        });
+        modal.on('change', '#ecm_position', function () {
+            const val = jQuery(this).val();
+            settings.position = val;
+            saveSettings();
+            updateApplyLayout();
+            jQuery('#discord_position').val(val);
+        });
+        modal.on('change', '#ecm_user_count', function () {
+            settings.userCount = parseInt(jQuery(this).val()) || 5;
+            saveSettings();
+            jQuery('#discord_user_count').val(settings.userCount);
+            // Update panel user menu
+            jQuery('.ec_menu_item[data-val]').filter(function () {
+                return jQuery(this).closest('.ec_user_menu').length > 0;
+            }).each(function () {
+                jQuery(this).toggleClass('selected', parseInt(jQuery(this).data('val')) === settings.userCount);
+            });
+        });
+        modal.on('change', '#ecm_font_size', function () {
+            settings.fontSize = parseInt(jQuery(this).val()) || 15;
+            applyFontSize(settings.fontSize);
+            saveSettings();
+            jQuery('#discord_font_size').val(settings.fontSize);
+        });
+        modal.on('input change', '#ecm_opacity', function () {
+            settings.opacity = parseInt(jQuery(this).val()) || 85;
+            modal.find('#ecm_opacity_val').text(settings.opacity + '%');
+            jQuery('#discord_opacity').val(settings.opacity).trigger('input');
+        });
+
+        // Content Settings
+        modal.on('change', '#ecm_auto_update', function () { syncToPanel('discord_auto_update', this.checked, true); });
+        modal.on('change', '#ecm_include_user', function () {
+            const checked = this.checked;
+            modal.find('#ecm_context_depth_container').toggle(checked);
+            syncToPanel('discord_include_user', checked, true);
+        });
+        modal.on('change', '#ecm_context_depth', function () { syncToPanel('discord_context_depth', jQuery(this).val()); });
+        modal.on('change', '#ecm_include_past_echo', function () { syncToPanel('discord_include_past_echo', this.checked, true); });
+        modal.on('change', '#ecm_include_persona', function () { syncToPanel('discord_include_persona', this.checked, true); });
+        modal.on('change', '#ecm_include_character_description', function () { syncToPanel('discord_include_character_description', this.checked, true); });
+        modal.on('change', '#ecm_include_summary', function () { syncToPanel('discord_include_summary', this.checked, true); });
+        modal.on('change', '#ecm_include_world_info', function () {
+            const checked = this.checked;
+            modal.find('#ecm_wi_budget_container').toggle(checked);
+            syncToPanel('discord_include_world_info', checked, true);
+        });
+        modal.on('change', '#ecm_wi_budget', function () { syncToPanel('discord_wi_budget', jQuery(this).val()); });
+
+        // Livestream
+        modal.on('change', '#ecm_livestream', function () {
+            const checked = this.checked;
+            modal.find('#ecm_livestream_settings').toggle(checked);
+            toggleLivestream(checked);
+        });
+        modal.on('change', '#ecm_livestream_batch_size', function () { syncToPanel('discord_livestream_batch_size', jQuery(this).val()); });
+        modal.on('change', '#ecm_livestream_min_wait', function () { syncToPanel('discord_livestream_min_wait', jQuery(this).val()); });
+        modal.on('change', '#ecm_livestream_max_wait', function () { syncToPanel('discord_livestream_max_wait', jQuery(this).val()); });
+        modal.on('change', 'input[name="ecm_livestream_mode"]', function () {
+            const val = jQuery(this).val();
+            settings.livestreamMode = val;
+            saveSettings();
+            jQuery(`#discord_livestream_${val === 'manual' ? 'manual' : val === 'onMessage' ? 'onmessage' : 'oncomplete'} `).prop('checked', true);
+        });
+
+        // Chat Participation
+        modal.on('change', '#ecm_chat_enabled', function () { syncToPanel('discord_chat_enabled', this.checked, true); });
+        modal.on('input', '#ecm_chat_username', function () { syncToPanel('discord_chat_username', jQuery(this).val()); });
+        modal.on('input change', '#ecm_chat_avatar_color', function () {
+            const color = jQuery(this).val();
+            settings.chatAvatarColor = color;
+            applyAvatarColor(color);
+            jQuery('#discord_chat_avatar_color').val(color);
+            saveSettings();
+        });
+        modal.on('input change', '#ecm_chat_reply_count', function () {
+            const val = Math.max(1, Math.min(12, parseInt(jQuery(this).val()) || 3));
+            settings.chatReplyCount = val;
+            jQuery(this).val(val);
+            jQuery('#discord_chat_reply_count').val(val);
+            saveSettings();
+        });
+    }
+
+    function closeSettingsModal() {
+        const modal = jQuery('#ec_settings_modal');
+        modal.trigger('ecm:close');
+        modal.removeClass('ecm_visible');
+        jQuery(document).off('keydown.ecm');
+        setTimeout(() => modal.remove(), 300);
+    }
+
+    // Sync modal inputs from the current settings object (called when panel changes while modal is open)
+    function syncModalFromSettings() {
+        const modal = jQuery('#ec_settings_modal');
+        if (!modal.length) return;
+        const s = settings;
+        modal.find('#ecm_enabled').prop('checked', s.enabled);
+        modal.find('#ecm_source').val(s.source);
+        modal.find('#ecm_url').val(s.url);
+        modal.find('#ecm_openai_url').val(s.openai_url);
+        modal.find('#ecm_openai_key').val(s.openai_key);
+        modal.find('#ecm_openai_model').val(s.openai_model);
+        modal.find('#ecm_openai_preset').val(s.openai_preset);
+        modal.find('#ecm_model_select').val(s.model);
+        modal.find('#ecm_preset_select').val(s.preset);
+        modal.find('#ecm_style').val(s.style);
+        modal.find('#ecm_position').val(s.position);
+        modal.find('#ecm_user_count').val(s.userCount);
+        modal.find('#ecm_font_size').val(s.fontSize);
+        modal.find('#ecm_opacity').val(s.opacity);
+        modal.find('#ecm_opacity_val').text((s.opacity || 85) + '%');
+        modal.find('#ecm_auto_update').prop('checked', s.autoUpdateOnMessages !== false);
+        modal.find('#ecm_include_user').prop('checked', s.includeUserInput);
+        modal.find('#ecm_context_depth').val(s.contextDepth);
+        modal.find('#ecm_context_depth_container').toggle(!!s.includeUserInput);
+        modal.find('#ecm_include_past_echo').prop('checked', s.includePastEchoChambers);
+        modal.find('#ecm_include_persona').prop('checked', s.includePersona);
+        modal.find('#ecm_include_character_description').prop('checked', s.includeCharacterDescription);
+        modal.find('#ecm_include_summary').prop('checked', s.includeSummary);
+        modal.find('#ecm_include_world_info').prop('checked', s.includeWorldInfo);
+        modal.find('#ecm_wi_budget').val(s.wiBudget);
+        modal.find('#ecm_wi_budget_container').toggle(!!s.includeWorldInfo);
+        modal.find('#ecm_livestream').prop('checked', s.livestream);
+        modal.find('#ecm_livestream_settings').toggle(!!s.livestream);
+        modal.find('#ecm_livestream_batch_size').val(s.livestreamBatchSize);
+        modal.find('#ecm_livestream_min_wait').val(s.livestreamMinWait);
+        modal.find('#ecm_livestream_max_wait').val(s.livestreamMaxWait);
+        const mode = s.livestreamMode || 'manual';
+        modal.find(`input[name = "ecm_livestream_mode"][value = "${mode}"]`).prop('checked', true);
+        modal.find('#ecm_chat_enabled').prop('checked', s.chatEnabled !== false);
+        modal.find('#ecm_chat_username').val(s.chatUsername);
+        modal.find('#ecm_chat_avatar_color').val(s.chatAvatarColor || '#3b82f6');
+        modal.find('#ecm_chat_reply_count').val(s.chatReplyCount || 3);
+        modal.find('#ecm_ollama_settings').toggle(s.source === 'ollama');
+        modal.find('#ecm_openai_settings').toggle(s.source === 'openai');
+        modal.find('#ecm_profile_settings').toggle(s.source === 'profile');
+    }
+
+    // ============================================================
     // UI RENDERING
     // ============================================================
 
@@ -2333,8 +3759,8 @@ username: message
         // Header Right - All icon buttons (Refresh first, then layout, users, font)
         const rightGroup = jQuery('<div class="ec_header_right"></div>');
         const createBtn = (icon, title, menuClass) => {
-            const btn = jQuery(`<div class="ec_btn" title="${title}"><i class="${icon}"></i></div>`);
-            if (menuClass) btn.append(`<div class="ec_popup_menu ${menuClass}"></div>`);
+            const btn = jQuery(`<div class="ec_btn" title = "${title}" > <i class="${icon}"></i></div> `);
+            if (menuClass) btn.append(`<div class="ec_popup_menu ${menuClass}" ></div> `);
             return btn;
         };
 
@@ -2343,9 +3769,17 @@ username: message
         const usersBtn = createBtn('fa-solid fa-users', 'User Count', 'ec_user_menu');
         const fontBtn = createBtn('fa-solid fa-font', 'Font Size', 'ec_font_menu');
         const clearBtn = createBtn('fa-solid fa-trash-can', 'Clear Chat & Cache', null);
+        const settingsBtn = createBtn('fa-solid fa-gear', 'Settings', null);
 
-        // Refresh is first on the left, then layout, users, font, and clear button last
-        rightGroup.append(refreshBtn).append(layoutBtn).append(usersBtn).append(fontBtn).append(clearBtn);
+        // Overflow button - shown in compact/mobile mode instead of individual buttons
+        const overflowBtn = jQuery('<div class="ec_btn ec_overflow_btn" title="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></div>');
+        // Build overflow menu detached from button and appended to body to avoid clipping
+        jQuery('#ec_overflow_menu_body').remove();
+        const overflowMenu = jQuery('<div id="ec_overflow_menu_body" class="ec_popup_menu ec_overflow_menu"></div>');
+        jQuery('body').append(overflowMenu);
+
+        // Refresh is first on the left, then layout, users, font, clear, and settings button last
+        rightGroup.append(refreshBtn).append(layoutBtn).append(usersBtn).append(fontBtn).append(clearBtn).append(settingsBtn).append(overflowBtn);
 
         discordQuickBar.append(leftGroup).append(rightGroup);
 
@@ -2363,9 +3797,19 @@ username: message
 
         discordContent = jQuery('<div id="discordContent"></div>');
 
+        const replyContainer = jQuery(`
+        <div class="ec_reply_container" >
+            <div class="ec_reply_wrapper">
+                <input type="text" class="ec_reply_input" placeholder="Type a message to participate..." id="ec_reply_field">
+                <div class="ec_reply_send" id="ec_reply_submit" title="Send message"><i class="fa-solid fa-paper-plane"></i></div>
+            </div>
+        </div>
+    `);
+
         const resizeHandle = jQuery('<div class="ec_resize_handle"></div>');
 
-        discordBar.append(discordQuickBar).append(styleIndicator).append(statusOverlay).append(discordContent).append(resizeHandle);
+        // Update the append order:
+        discordBar.append(discordQuickBar).append(styleIndicator).append(statusOverlay).append(discordContent).append(replyContainer).append(resizeHandle);
 
         // Populate Layout Menu
         const layoutMenu = layoutBtn.find('.ec_layout_menu');
@@ -2373,18 +3817,18 @@ username: message
         ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
             const icon = pos === 'Top' ? 'up' : pos === 'Bottom' ? 'down' : pos === 'Left' ? 'left' : 'right';
             const isSelected = pos.toLowerCase() === currentPos ? ' selected' : '';
-            layoutMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${pos.toLowerCase()}"><i class="fa-solid fa-arrow-${icon}"></i> ${pos}</div>`);
+            layoutMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${pos.toLowerCase()}" > <i class="fa-solid fa-arrow-${icon}"></i> ${pos}</div> `);
         });
         // Add Pop Out option
         const popoutSelected = currentPos === 'popout' ? ' selected' : '';
-        layoutMenu.append(`<div class="ec_menu_item${popoutSelected}" data-val="popout"><i class="fa-solid fa-arrow-up-right-from-square"></i> Pop Out</div>`);
+        layoutMenu.append(`<div class="ec_menu_item${popoutSelected}" data-val="popout" > <i class="fa-solid fa-arrow-up-right-from-square"></i> Pop Out</div> `);
 
         // Populate User Count Menu with current selection highlighted
         const userMenu = usersBtn.find('.ec_user_menu');
         const currentUsers = settings.userCount || 5;
         for (let i = 1; i <= 20; i++) {
             const isSelected = i === currentUsers ? ' selected' : '';
-            userMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${i}">${i} users</div>`);
+            userMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${i}" > ${i} users</div> `);
         }
 
         // Populate Font Size Menu with current selection highlighted
@@ -2392,13 +3836,134 @@ username: message
         const currentFont = settings.fontSize || 15;
         for (let i = 8; i <= 24; i++) {
             const isSelected = i === currentFont ? ' selected' : '';
-            fontMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${i}">${i}px</div>`);
+            fontMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${i}" > ${i}px</div> `);
         }
 
 
         updateApplyLayout();
         log('Panel rendered');
+
+        // ---- Overflow menu population (accordion layout) ----
+        const currentPosOF = settings.position || 'bottom';
+        const currentUsersOF = settings.userCount || 5;
+        const currentFontOF = settings.fontSize || 15;
+        const posIcons = { top: 'up', bottom: 'down', left: 'left', right: 'right' };
+
+        // Helper: build an accordion section
+        function makeAccordion(id, icon, label, bodyContent) {
+            const acc = jQuery(`
+        <div class="ec_of_accordion" >
+  <div class="ec_of_acc_header" data-acc="${id}">
+    <span><i class="fa-solid ${icon}"></i> ${label}</span>
+    <i class="fa-solid fa-chevron-right ec_of_chevron"></i>
+  </div>
+  <div class="ec_of_acc_body" id="ec_of_${id}_body"></div>
+</div> `);
+            acc.find('.ec_of_acc_body').append(bodyContent);
+            return acc;
+        }
+
+        // Direct action: Regenerate Chat (always visible at top)
+        overflowMenu.append(`<div class="ec_of_item ec_of_action" data-action="refresh"><i class="fa-solid fa-rotate-right"></i><span>Regenerate Chat</span></div>`);
+        overflowMenu.append(`<div class="ec_of_divider_line"></div>`);
+
+        // Accordion: Panel Position
+        const posBodies = jQuery('<div class="ec_of_chip_wrap"></div>');
+        ['top', 'bottom', 'left', 'right'].forEach(pos => {
+            const sel = pos === currentPosOF ? ' ec_of_selected' : '';
+            posBodies.append(`<div class="ec_of_chip ec_of_pos_chip${sel}" data-action="position" data-val="${pos}"><i class="fa-solid fa-arrow-${posIcons[pos]}"></i> ${pos.charAt(0).toUpperCase() + pos.slice(1)}</div>`);
+        });
+        posBodies.append(`<div class="ec_of_chip ec_of_pos_chip" data-action="position" data-val="popout"><i class="fa-solid fa-arrow-up-right-from-square"></i> Pop Out</div>`);
+        overflowMenu.append(makeAccordion('position', 'fa-table-columns', 'Panel Position', posBodies));
+
+        // Accordion: User Count (2–20 by twos)
+        const userBodies = jQuery('<div class="ec_of_chip_wrap"></div>');
+        for (let n = 2; n <= 20; n += 2) {
+            const sel = n === currentUsersOF ? ' ec_of_selected' : '';
+            userBodies.append(`<div class="ec_of_chip ec_of_num${sel}" data-action="users" data-val="${n}">${n}</div>`);
+        }
+        overflowMenu.append(makeAccordion('users', 'fa-users', 'User Count', userBodies));
+
+        // Accordion: Font Size
+        const fontBodies = jQuery('<div class="ec_of_chip_wrap"></div>');
+        [10, 11, 12, 13, 14, 15, 16, 18, 20].forEach(n => {
+            const sel = n === currentFontOF ? ' ec_of_selected' : '';
+            fontBodies.append(`<div class="ec_of_chip ec_of_num${sel}" data-action="font" data-val="${n}">${n}px</div>`);
+        });
+        overflowMenu.append(makeAccordion('font', 'fa-font', 'Font Size', fontBodies));
+
+        // Bottom actions
+        overflowMenu.append(`<div class="ec_of_divider_line"></div>`);
+        overflowMenu.append(`<div class="ec_of_item ec_of_action ec_of_danger" data-action="clear"><i class="fa-solid fa-trash-can"></i><span>Clear Chat &amp; Cache</span></div>`);
+        overflowMenu.append(`<div class="ec_of_item ec_of_action" data-action="settings"><i class="fa-solid fa-gear"></i><span>Settings</span></div>`);
+
+        // ---- Compact mode: measure-then-decide approach ----
+        // To get accurate button widths, we must measure when buttons are visible.
+        // Strategy: briefly remove ec_compact so buttons are measurable, take the reading,
+        // then re-apply compact only if genuinely needed. CSS transition is fast enough
+        // that this causes no visible flash (elements are in-flow but the toggle is <1ms).
+        let naturalRightW = 0;
+        let compactDebounce = null;
+
+        const checkCompact = () => {
+            clearTimeout(compactDebounce);
+            compactDebounce = setTimeout(() => {
+                if (!discordQuickBar || !discordQuickBar[0]) return;
+                const bar = discordQuickBar[0];
+                const barW = bar.offsetWidth;
+                if (barW < 50) return; // not laid out yet
+
+                const leftEl = bar.querySelector('.ec_header_left');
+                const rightEl = bar.querySelector('.ec_header_right');
+                if (!leftEl || !rightEl) return;
+
+                // Temporarily remove compact so we can measure real button widths
+                const wasCompact = discordQuickBar.hasClass('ec_compact');
+                discordQuickBar.removeClass('ec_compact');
+
+                // Force a sync reflow so offsetWidth reflects button visibility
+                void bar.offsetWidth;
+
+                // Measure actual rendered widths of the 6 regular buttons
+                let measured = 0;
+                rightEl.querySelectorAll('.ec_btn:not(.ec_overflow_btn)').forEach(b => {
+                    measured += b.offsetWidth;
+                });
+                if (measured > 20) naturalRightW = measured;
+
+                const leftW = leftEl.offsetWidth;
+                const rightW = naturalRightW > 0 ? naturalRightW : 6 * 28;
+                // Required: left + right groups must fit in bar with 4px margin
+                // (bar padding is already inside offsetWidth, space-between handles gaps)
+                const required = leftW + rightW + 4;
+                const needsCompact = required > barW;
+
+                // Apply the correct state
+                if (needsCompact) {
+                    discordQuickBar.addClass('ec_compact');
+                }
+                // If wasCompact and now not needsCompact, we already removed it above — correct.
+            }, 150);
+        };
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(checkCompact);
+            setTimeout(() => {
+                if (discordQuickBar && discordQuickBar[0]) {
+                    ro.observe(discordQuickBar[0]);
+                    checkCompact(); // initial check at 400ms (100 setup + 150 debounce = 250)
+                }
+            }, 250);
+            // Second check at 700ms in case browser hasn't fully settled layout yet
+            setTimeout(checkCompact, 700);
+        } else {
+            jQuery(window).on('resize.eccpact', checkCompact);
+            setTimeout(checkCompact, 250);
+            setTimeout(checkCompact, 700);
+        }
     }
+
+
 
     function populateStyleMenu(menu) {
         menu.empty();
@@ -2408,7 +3973,7 @@ username: message
             const isSelected = s.val === settings.style ? ' selected' : '';
             const safeVal = DOMPurify.sanitize(s.val, { ALLOWED_TAGS: [] });
             const safeLabel = DOMPurify.sanitize(s.label, { ALLOWED_TAGS: [] });
-            menu.append(`<div class="ec_menu_item${isSelected}" data-val="${safeVal}"><i class="fa-solid fa-masks-theater"></i> ${safeLabel}</div>`);
+            menu.append(`<div class="ec_menu_item${isSelected}" data-val="${safeVal}" > <i class="fa-solid fa-masks-theater"></i> ${safeLabel}</div> `);
         });
     }
 
@@ -2424,10 +3989,15 @@ username: message
         const { DOMPurify } = SillyTavern.libs;
         const safeStyleName = DOMPurify.sanitize(styleName, { ALLOWED_TAGS: [] });
 
-        // Keep existing menu if present
+        // Keep existing menu if present (main panel uses ec_indicator_menu appended to body)
         const existingMenu = el.find('.ec_indicator_menu');
-        el.html(`<i class="fa-solid fa-masks-theater"></i> <span>Style: ${safeStyleName}</span> <i class="fa-solid fa-caret-down ec_dropdown_arrow"></i>`);
+        el.html(`<i class="fa-solid fa-masks-theater" ></i> <span>Style: ${safeStyleName}</span> <i class="fa-solid fa-caret-down ec_dropdown_arrow"></i>`);
         if (existingMenu.length) el.append(existingMenu);
+
+        // When updating the main indicator, also sync the floating panel style button
+        if (!indicator) {
+            updateFloatStyleLabel();
+        }
     }
 
     function updateApplyLayout() {
@@ -2446,7 +4016,7 @@ username: message
 
         // Remove all position classes
         discordBar.removeClass('ec_top ec_bottom ec_left ec_right ec_collapsed');
-        discordBar.addClass(`ec_${pos}`);
+        discordBar.addClass(`ec_${pos} `);
 
         // Detach and re-append depending on mode
         discordBar.detach();
@@ -2484,7 +4054,7 @@ username: message
             }
             // Reset styles for flow layout
             discordBar.css({ width: '100%', height: '' });
-            // Strict height control: disable flex growth, force pixel height
+            // Restore saved content height (fixes ' px' space bug with template literal)
             discordContent.css({
                 'height': `${settings.chatHeight || 200}px`,
                 'flex-grow': '0'
@@ -2501,8 +4071,8 @@ username: message
                 });
                 log('Top panel placed, content height:', settings.chatHeight);
             } else {
-                // Side layouts - don't set width, let CSS handle it with calc()
-                // Only apply panelWidth if position is not left/right
+                // Side layouts — restore saved panel width
+                discordBar.css('width', `${settings.panelWidth || 350}px`);
                 discordContent.css({
                     'height': '100%',
                     'flex-grow': '1'
@@ -2562,14 +4132,75 @@ username: message
         updateLiveIndicator();
     }
 
-    function updateLiveIndicator() {
+    function updateLiveIndicator(state) {
         const indicator = jQuery('#ec_live_indicator');
-        if (!indicator.length) return;
+        // Also target the floating panel's live indicator if it exists in the same document
+        const popoutInd = document.getElementById('ec_float_live_indicator');
 
-        if (settings.livestream) {
-            indicator.removeClass('ec_live_off').addClass('ec_live_on');
+        if (!indicator.length && !popoutInd) return;
+
+        let className = 'ec_live_indicator ';
+        let title = '';
+
+        if (state === 'loading') {
+            className += 'ec_live_loading';
+            title = 'Processing… click to cancel';
+        } else if (settings.livestream) {
+            className += 'ec_live_on';
+            title = 'LIVE — click to pause';
         } else {
-            indicator.removeClass('ec_live_on').addClass('ec_live_off');
+            className += 'ec_live_off';
+            title = 'Click to enable Livestream';
+        }
+
+        if (indicator.length) {
+            indicator.removeClass('ec_live_off ec_live_on ec_live_loading');
+            indicator.addClass(className.replace('ec_live_indicator ', ''));
+            indicator.attr('title', title);
+        }
+
+        if (popoutInd) {
+            popoutInd.className = className;
+            popoutInd.title = title;
+        }
+    }
+
+    // Shared toggle logic — called by both the LIVE indicator and the settings checkbox
+    async function toggleLivestream(enable) {
+        const wasEnabled = settings.livestream;
+        settings.livestream = enable;
+        saveSettings();
+
+        // Keep settings panel checkbox in sync
+        jQuery('#discord_livestream').prop('checked', enable);
+        jQuery('#discord_livestream_settings').toggle(enable);
+
+        updateLiveIndicator(enable ? null : null);
+
+        if (enable) {
+            if (livestreamActive && livestreamQueue.length > 0) {
+                // Queue still has messages — just resume the ticker
+                resumeLivestream();
+                updateLiveIndicator();
+            } else {
+                // Need a fresh batch — generate silently in the background
+                updateLiveIndicator('loading');
+
+                // Kick off background generation without blocking the UI
+                // generateDiscordChat handles livestream display flow internally
+                generateDiscordChat().finally(() => {
+                    updateLiveIndicator();
+                });
+            }
+        } else {
+            // Pause: stop the tick but keep the queue intact for resuming later
+            pauseLivestream();
+            // Abort any in-progress generation
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+            updateLiveIndicator();
         }
     }
 
@@ -2653,6 +4284,101 @@ username: message
         if (eventsBound) return;
         eventsBound = true;
 
+        // Handle clicking a username to tag them
+        jQuery(document).on('click', '.discord_username', function () {
+            const username = jQuery(this).text();
+            const input = jQuery('#ec_reply_field');
+            input.val(`@${username} `).focus();
+            // Scroll the reply input into view for convenience
+            const replyContainer = document.querySelector('.ec_reply_container');
+            if (replyContainer) replyContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+
+        // LIVE indicator click — when loading (orange), cancels in-progress generation.
+        // Otherwise, toggles livestream on/off.
+        jQuery(document).on('click', '#ec_live_indicator', function () {
+            if (jQuery('#ec_live_indicator').hasClass('ec_live_loading')) {
+                // Orange = processing — treat click as a cancel
+                userCancelled = true;
+                clearTimeout(debounceTimeout);
+                if (abortController) {
+                    abortController.abort();
+                }
+                updateLiveIndicator(); // Restore to ec_live_on state
+            } else {
+                toggleLivestream(!settings.livestream);
+            }
+        });
+
+        //  Handle sending the message
+        const submitReply = async () => {
+            if (isGenerating) {
+                cancelGenerationContext();
+                return;
+            }
+            if (!settings.chatEnabled) return;
+            const input = jQuery('#ec_reply_field');
+            const text = input.val().trim();
+            if (!text) return;
+
+            // Clear input immediately for feel
+            input.val('');
+
+            // Show user's message immediately using their configured username
+            const myMsg = formatMessage(settings.chatUsername || 'Streamer (You)', text, true);
+            const container = jQuery('#discordContent .discord_container');
+            if (container.length) {
+                container.prepend(myMsg);
+            } else {
+                jQuery('#discordContent').html(`<div class="discord_container" > ${myMsg}</div> `);
+            }
+
+            // Scroll to top so the user sees their message and the incoming reply
+            jQuery('#discordContent').scrollTop(0);
+
+            // Parse @username mention if present, then generate a targeted single reply
+            const atMatch = text.match(/^@([^\s]+)/);
+            const targetUsername = atMatch ? atMatch[1] : null;
+
+            // Generate a quick response from only the mentioned chatter (no full refresh)
+            await generateSingleReply(text, targetUsername);
+        };
+
+        jQuery(document).on('click', '#ec_reply_submit', submitReply);
+        jQuery(document).on('keypress', '#ec_reply_field', function (e) {
+            if (e.which == 13) submitReply();
+        });
+
+        // Chat Participation settings handlers
+        jQuery(document).on('change', '#discord_chat_enabled', function () {
+            settings.chatEnabled = this.checked;
+            jQuery('.ec_reply_container').toggle(this.checked);
+            saveSettings();
+        });
+
+        jQuery(document).on('input', '#discord_chat_username', function () {
+            settings.chatUsername = jQuery(this).val().trim() || 'Streamer (You)';
+            saveSettings();
+        });
+
+        jQuery(document).on('input change', '#discord_chat_avatar_color', function () {
+            const color = jQuery(this).val();
+            settings.chatAvatarColor = color;
+            applyAvatarColor(color);
+            // Sync to modal if open
+            jQuery('#ecm_chat_avatar_color').val(color);
+            saveSettings();
+        });
+
+        jQuery(document).on('input change', '#discord_chat_reply_count', function () {
+            const val = Math.max(1, Math.min(12, parseInt(jQuery(this).val()) || 3));
+            settings.chatReplyCount = val;
+            jQuery(this).val(val);
+            // Sync to modal if open
+            jQuery('#ecm_chat_reply_count').val(val);
+            saveSettings();
+        });
+
         // Power Button - toggles paused state (keeps panel visible, just pauses generation)
         jQuery(document).on('click', '.ec_power_btn', function () {
             settings.paused = !settings.paused;
@@ -2690,31 +4416,167 @@ username: message
         });
 
         // Menu Button Clicks
-        jQuery(document).on('click', '.ec_btn', function (e) {
+        jQuery(document).on('click touchend', '.ec_btn', function (e) {
+            if (e.type === 'touchend') e.preventDefault();
             const btn = jQuery(this);
             const wasActive = btn.hasClass('active');
 
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').hide();
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
 
-            if (btn.find('.ec_popup_menu').length > 0) {
+            // Handle dropdowns (like user count, font size, AND chat styles indicator)
+            if (btn.hasClass('ec_overflow_btn')) {
                 if (!wasActive) {
                     btn.addClass('open active');
-                    btn.find('.ec_popup_menu').show();
+                    const popup = jQuery('#ec_overflow_menu_body');
+                    const btnRect = btn[0].getBoundingClientRect();
+                    const isBottom = jQuery('#discordBar').hasClass('ec_bottom');
+                    const menuW = 260; // approx max-width; real width measured after show
+
+                    // Temporarily show off-screen to measure actual width
+                    popup.css({ visibility: 'hidden', display: 'block', top: '-9999px', left: '-9999px' });
+                    const actualW = popup[0].offsetWidth;
+                    const actualH = popup[0].offsetHeight;
+
+                    // Horizontal: right-align to button, then clamp to viewport
+                    let left = btnRect.right - actualW;
+                    if (left < 8) left = 8;
+                    if (left + actualW > window.innerWidth - 8) left = window.innerWidth - actualW - 8;
+
+                    // Vertical: open below button normally, above when panel is at bottom
+                    let top;
+                    if (isBottom) {
+                        top = btnRect.top - actualH - 6;
+                    } else {
+                        top = btnRect.bottom + 6;
+                    }
+
+                    popup.css({
+                        visibility: '',
+                        display: 'block',
+                        position: 'fixed',
+                        top: top + 'px',
+                        left: left + 'px',
+                        right: 'auto',
+                        bottom: 'auto',
+                    });
+                }
+            } else if (btn.find('.ec_popup_menu').length > 0) {
+                if (!wasActive) {
+                    btn.addClass('open active');
+                    const popup = btn.find('.ec_popup_menu');
+                    popup.show();
+                    // Clamp the popup so it never overflows the left edge of the viewport
+                    const rect = popup[0].getBoundingClientRect();
+                    if (rect.left < 8) {
+                        popup.css({ right: 'auto', left: (8 - rect.left) + 'px' });
+                    }
                 }
             } else if (btn.find('.fa-rotate-right').length) {
                 btn.find('i').addClass('fa-spin');
                 setTimeout(() => btn.find('i').removeClass('fa-spin'), 1000);
-                generateDebounced();
+                // Always show the full Processing/Cancel overlay for explicit user-triggered regeneration,
+                // even when Livestream is enabled (showOverlay=true bypasses the silent-background path).
+                generateDiscordChat(true);
             } else if (btn.find('.fa-trash-can').length) {
-                // Clear button clicked
-                if (confirm('Clear generated chat and all cached commentary?')) {
-                    setDiscordText('');
-                    clearCachedCommentary();
-                    if (typeof toastr !== 'undefined') toastr.success('Chat and cache cleared');
-                }
+                // Clear button clicked — show custom confirmation modal
+                showConfirmModal('Clear all generated chat messages and cached commentary?').then(confirmed => {
+                    if (confirmed) {
+                        setDiscordText('');
+                        clearCachedCommentary();
+                        if (typeof toastr !== 'undefined') toastr.success('Chat and cache cleared');
+                    }
+                });
+            } else if (btn.find('.fa-gear').length) {
+                // Settings button clicked
+                openSettingsModal();
             }
             e.stopPropagation();
+        });
+
+        // Overflow menu action clicks
+        jQuery(document).on('click touchend', '.ec_of_action[data-action]', function (e) {
+            if (e.type === 'touchend') e.preventDefault();
+            e.stopPropagation();
+            const action = jQuery(this).data('action');
+            jQuery('.ec_btn').removeClass('open active');
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            if (action === 'refresh') {
+                jQuery('.ec_btn[title="Regenerate Chat"] i').addClass('fa-spin');
+                setTimeout(() => jQuery('.ec_btn[title="Regenerate Chat"] i').removeClass('fa-spin'), 1000);
+                generateDiscordChat(true);
+            } else if (action === 'clear') {
+                showConfirmModal('Clear all generated chat messages and cached commentary?').then(confirmed => {
+                    if (confirmed) {
+                        setDiscordText('');
+                        clearCachedCommentary();
+                        if (typeof toastr !== 'undefined') toastr.success('Chat and cache cleared');
+                    }
+                });
+            } else if (action === 'settings') {
+                openSettingsModal();
+            }
+        });
+
+        // Accordion toggle inside overflow menu
+        jQuery(document).on('click', '.ec_of_acc_header', function (e) {
+            e.stopPropagation();
+            const header = jQuery(this);
+            const body = header.next('.ec_of_acc_body');
+            const chevron = header.find('.ec_of_chevron');
+            const isOpen = body.hasClass('ec_of_open');
+            // Close all accordions first
+            jQuery('.ec_of_acc_body').removeClass('ec_of_open');
+            jQuery('.ec_of_chevron').removeClass('ec_of_rotated');
+            // Open this one if it was closed
+            if (!isOpen) {
+                body.addClass('ec_of_open');
+                chevron.addClass('ec_of_rotated');
+            }
+        });
+
+        // Overflow chip clicks (position, users, font)
+        jQuery(document).on('click', '.ec_of_chip[data-action]', function (e) {
+            e.stopPropagation();
+            const chip = jQuery(this);
+            const action = chip.data('action');
+            const val = chip.data('val');
+
+            if (action === 'position') {
+                if (val === 'popout') {
+                    openPopoutWindow();
+                } else {
+                    settings.position = val;
+                    saveSettings();
+                    updateApplyLayout();
+                    jQuery('#discord_position').val(val);
+                    // Update selection highlight within this accordion body
+                    chip.closest('.ec_of_acc_body').find('.ec_of_chip[data-action="position"]').removeClass('ec_of_selected');
+                    chip.addClass('ec_of_selected');
+                }
+            jQuery('.ec_btn').removeClass('open active');
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            } else if (action === 'users') {
+                settings.userCount = parseInt(val);
+                saveSettings();
+                jQuery('#discord_user_count').val(settings.userCount);
+                chip.closest('.ec_of_acc_body').find('.ec_of_chip').removeClass('ec_of_selected');
+                chip.addClass('ec_of_selected');
+                jQuery('.ec_user_menu .ec_menu_item').each(function () {
+                    jQuery(this).toggleClass('selected', parseInt(jQuery(this).data('val')) === settings.userCount);
+                });
+            } else if (action === 'font') {
+                const size = parseInt(val);
+                settings.fontSize = size;
+                applyFontSize(size);
+                saveSettings();
+                jQuery('#discord_font_size').val(size);
+                chip.closest('.ec_of_acc_body').find('.ec_of_chip').removeClass('ec_of_selected');
+                chip.addClass('ec_of_selected');
+                jQuery('.ec_font_menu .ec_menu_item').each(function () {
+                    jQuery(this).toggleClass('selected', parseInt(jQuery(this).data('val')) === size);
+                });
+            }
         });
 
         // Style Indicator Dropdown Click - menu is in body, position dynamically
@@ -2725,7 +4587,7 @@ username: message
 
             // Close other menus
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').not('#ec_style_menu_body').hide();
+            jQuery('.ec_popup_menu').not('#ec_style_menu_body').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
 
             if (!wasActive) {
                 trigger.addClass('active');
@@ -2768,8 +4630,9 @@ username: message
 
         jQuery(document).on('click', function () {
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').hide();
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
             jQuery('#ec_style_menu_body').hide();
+            jQuery('#ec_float_style_menu_body').hide();
             jQuery('.ec_style_dropdown_trigger').removeClass('active');
         });
 
@@ -2787,10 +4650,11 @@ username: message
                 parent.find('.ec_menu_item').removeClass('selected');
                 jQuery(this).addClass('selected');
                 updateStyleIndicator();
+                updateFloatStyleLabel();
                 // Show toast notification about style change
                 const styleObj = getAllStyles().find(s => s.val === val);
                 const styleName = styleObj ? styleObj.label : val;
-                if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName}`);
+                if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName} `);
             } else if (parent.hasClass('ec_layout_menu')) {
                 if (val === 'popout') {
                     // Open popout window
@@ -2803,23 +4667,23 @@ username: message
                     jQuery('#discord_position').val(val);
                 }
             } else if (parent.hasClass('ec_user_menu')) {
-                settings.userCount = parseInt(val);
+                syncUserMenu(parseInt(val));
                 saveSettings();
-                jQuery('#discord_user_count').val(settings.userCount);
             } else if (parent.hasClass('ec_font_menu')) {
-                const size = parseInt(val);
-                settings.fontSize = size;
-                applyFontSize(size);
+                syncFontMenu(parseInt(val));
                 saveSettings();
-                jQuery('#discord_font_size').val(size);
             }
 
-            parent.find('.ec_menu_item').removeClass('selected');
-            jQuery(this).addClass('selected');
+            if (!parent.hasClass('ec_user_menu') && !parent.hasClass('ec_font_menu')) {
+                parent.find('.ec_menu_item').removeClass('selected');
+                jQuery(this).addClass('selected');
+            }
 
             // Close all menus and reset all active states
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').hide();
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('#ec_style_menu_body').hide();
+            jQuery('#ec_float_style_menu_body').hide();
             jQuery('.ec_style_dropdown_trigger').removeClass('active');
         });
 
@@ -2846,6 +4710,7 @@ username: message
 
             saveSettings();
             updatePanelIcons();
+            syncModalFromSettings();
         });
 
         jQuery('#discord_style').on('change', function () {
@@ -2854,12 +4719,14 @@ username: message
             saveSettings();
             updateStyleIndicator();
             if (discordQuickBar) discordQuickBar.find('.ec_style_select').val(val);
+            syncModalFromSettings();
         });
 
         jQuery('#discord_source').on('change', function () {
             settings.source = jQuery(this).val();
             saveSettings();
             updateSourceVisibility();
+            syncModalFromSettings();
         });
 
         jQuery('#discord_position').on('change', function () {
@@ -2873,18 +4740,21 @@ username: message
                 settings.position = newPosition;
                 saveSettings();
                 updateApplyLayout();
+                syncModalFromSettings();
             }
         });
 
         jQuery('#discord_user_count').on('change', function () {
             settings.userCount = parseInt(jQuery(this).val()) || 5;
             saveSettings();
+            syncModalFromSettings();
         });
 
         jQuery('#discord_font_size').on('change', function () {
             settings.fontSize = parseInt(jQuery(this).val()) || 15;
             applyFontSize(settings.fontSize);
             saveSettings();
+            syncModalFromSettings();
         });
 
         jQuery('#discord_opacity').on('input change', function () {
@@ -2898,6 +4768,7 @@ username: message
                 discordQuickBar.css('background', headerBgWithOpacity);
             }
             saveSettings();
+            syncModalFromSettings();
         });
 
         // Connection Profile selection
@@ -3002,26 +4873,22 @@ username: message
         // Include World Info toggle
         jQuery('#discord_include_world_info').on('change', function () {
             settings.includeWorldInfo = jQuery(this).prop('checked');
+            jQuery('#discord_wi_budget_container').toggle(settings.includeWorldInfo);
             saveSettings();
             log('Include world info:', settings.includeWorldInfo);
         });
 
-        // Livestream toggle
-        jQuery('#discord_livestream').on('change', function () {
-            settings.livestream = jQuery(this).prop('checked');
+        // World Info budget input
+        jQuery('#discord_wi_budget').on('change', function () {
+            settings.wiBudget = Math.max(0, parseInt(jQuery(this).val()) || 0);
+            jQuery(this).val(settings.wiBudget);
             saveSettings();
-            log('Livestream:', settings.livestream);
+            log('WI budget:', settings.wiBudget, settings.wiBudget === 0 ? '(unlimited - use ST budget)' : 'tokens');
+        });
 
-            // Show/hide livestream settings
-            jQuery('#discord_livestream_settings').toggle(settings.livestream);
-
-            // Update live indicator
-            updateLiveIndicator();
-
-            // Stop any active livestream when toggled off
-            if (!settings.livestream) {
-                stopLivestream();
-            }
+        // Livestream toggle (settings panel) — delegates to shared toggleLivestream()
+        jQuery('#discord_livestream').on('change', function () {
+            toggleLivestream(jQuery(this).prop('checked'));
         });
 
         // Livestream batch size
@@ -3105,7 +4972,7 @@ username: message
                 saveSettings();
                 updateAllDropdowns();
 
-                if (typeof toastr !== 'undefined') toastr.success(`Imported style: ${name}`);
+                if (typeof toastr !== 'undefined') toastr.success(`Imported style: ${name} `);
                 log('Imported style:', id);
             };
             reader.readAsText(file);
@@ -3115,34 +4982,43 @@ username: message
         // SillyTavern Events
         const context = SillyTavern.getContext();
         if (context.eventSource && context.eventTypes) {
-            // Only auto-generate on new message if autoUpdateOnMessages is enabled
+            // Track whether the last ST generation produced an AI (character) message.
+            // MESSAGE_RECEIVED fires per-streaming-chunk; we only use it to snapshot
+            // the last message role so GENERATION_ENDED can check it later.
+            let lastGeneratedWasAI = false;
             context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => {
+                const ctx = SillyTavern.getContext();
+                const lastMessage = ctx.chat && ctx.chat[ctx.chat.length - 1];
+                lastGeneratedWasAI = !!(lastMessage && !lastMessage.is_user);
+                console.error("[EchoChamber Debug] MESSAGE_RECEIVED fired. lastGeneratedWasAI:", lastGeneratedWasAI);
+            });
+
+            // GENERATION_ENDED fires exactly once when the LLM finishes the full response
+            // (including all streaming chunks). This is the correct trigger for EchoChamber
+            // because MESSAGE_RECEIVED fires on every streaming chunk, causing premature
+            // generation when a model pauses mid-stream (e.g. Deepseek on NanoGPT).
+            context.eventSource.on(context.eventTypes.GENERATION_ENDED, () => {
+                console.error("[EchoChamber Debug] GENERATION_ENDED fired");
                 // Don't auto-generate if there's no chat or it's empty (fresh chat)
                 const ctx = SillyTavern.getContext();
-                if (!ctx.chat || ctx.chat.length === 0) return;
+                if (!ctx.chat || ctx.chat.length === 0) { console.error("[EchoChamber Debug] Aborted: Empty chat"); return; }
 
                 // Don't auto-generate if we're currently loading/switching chats
-                if (isLoadingChat) return;
-
-                // Don't auto-generate if character editor is open (editing character cards)
-                const characterEditor = document.querySelector('#character_popup');
-                const isCharacterEditorOpen = characterEditor && characterEditor.style.display !== 'none' && characterEditor.offsetParent !== null;
-                if (isCharacterEditorOpen) return;
-
-                // Don't auto-generate if we're in the character creation/management area
-                const charCreatePanel = document.querySelector('#rm_ch_create_block');
-                const isCreatingCharacter = charCreatePanel && charCreatePanel.style.display !== 'none' && charCreatePanel.offsetParent !== null;
-                if (isCreatingCharacter) return;
+                if (isLoadingChat) { console.error("[EchoChamber Debug] Aborted: isLoadingChat is true"); return; }
 
                 // Don't auto-generate if there's no valid chatId (indicates we're not in an actual conversation)
-                if (!ctx.chatId) return;
+                if (!ctx.chatId) { console.error("[EchoChamber Debug] Aborted: No valid chatId"); return; }
 
-                // Only trigger on AI character messages, not user messages
+                // Only trigger on AI character messages, not user messages or impersonate/swipe ops
                 const lastMessage = ctx.chat[ctx.chat.length - 1];
-                if (!lastMessage || lastMessage.is_user) {
-                    // This is a user message or no message - don't auto-generate
-                    return;
-                }
+                if (!lastMessage || lastMessage.is_user) { console.error("[EchoChamber Debug] Aborted: Last message is user or missing"); return; }
+
+                // Confirm the last generation cycle produced an AI message (guards against
+                // GENERATION_ENDED firing after impersonate, slash commands, etc.)
+                if (!lastGeneratedWasAI) { console.error("[EchoChamber Debug] Aborted: lastGeneratedWasAI is false"); return; }
+
+                // Reset flag so a repeat GENERATION_ENDED without MESSAGE_RECEIVED doesn't re-fire
+                lastGeneratedWasAI = false;
 
                 // Determine if we should auto-generate
                 let shouldAutoGenerate = false;
@@ -3155,11 +5031,22 @@ username: message
                     shouldAutoGenerate = true;
                 }
 
+                console.error("[EchoChamber Debug] Calling onChatEvent. shouldAutoGenerate:", shouldAutoGenerate);
+
                 onChatEvent(false, shouldAutoGenerate);
             });
+
             // On chat change (loading a conversation), clear display and try to restore from metadata
             context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
-                // Set flag to prevent MESSAGE_RECEIVED from triggering during chat load
+                const ctx = SillyTavern.getContext();
+                if (lastChatId === ctx.chatId) {
+                    console.error("[EchoChamber Debug] CHAT_CHANGED ignored due to matching lastChatId:", lastChatId);
+                    return; // Ignore superfluous changes
+                }
+                console.error("[EchoChamber Debug] CHAT_CHANGED setting isLoadingChat=true, lastChatId:", lastChatId, "new:", ctx.chatId);
+                lastChatId = ctx.chatId;
+
+                // Set flag to prevent GENERATION_ENDED from triggering during chat load
                 isLoadingChat = true;
                 onChatEvent(false, false);
                 // Clear the flag after a short delay to allow legitimate new messages
@@ -3174,6 +5061,32 @@ username: message
     // ============================================================
     // INITIALIZATION
     // ============================================================
+
+    // ============================================================
+    // SETTINGS PANEL ACCORDION
+    // ============================================================
+
+    function initEcSettingsAccordions() {
+        // Wire up all accordion header buttons
+        document.querySelectorAll('.ec-s-section-header').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const expanded = this.getAttribute('aria-expanded') === 'true';
+                const body = this.nextElementSibling;
+                this.setAttribute('aria-expanded', String(!expanded));
+                if (body) body.hidden = expanded;
+            });
+        });
+
+        // Open sections marked with data-default-open
+        document.querySelectorAll('.ec-s-section[data-default-open]').forEach(section => {
+            const btn = section.querySelector('.ec-s-section-header');
+            const body = section.querySelector('.ec-s-section-body');
+            if (btn && body) {
+                btn.setAttribute('aria-expanded', 'true');
+                body.hidden = false;
+            }
+        });
+    }
 
     async function init() {
         log('Initializing...');
@@ -3208,6 +5121,7 @@ username: message
                 const settingsHtml = await context.renderExtensionTemplateAsync(moduleName, 'settings');
                 jQuery('#extensions_settings').append(settingsHtml);
                 log('Settings template loaded');
+                initEcSettingsAccordions();
             }
         } catch (err) {
             error('Failed to load settings template:', err);
@@ -3216,6 +5130,14 @@ username: message
         // Initialize - load settings FIRST so panel can use them
         loadSettings();
         renderPanel();
+        
+        // Update Pop Out visibility based on screen size
+        updatePopoutVisibility();
+        
+        // Update on window resize
+        jQuery(window).on('resize', debounce(() => {
+            updatePopoutVisibility();
+        }, 250));
         initResizeLogic();
         bindEventHandlers();
 

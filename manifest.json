@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "css": "style.css",
-    "author": "Antigravity",
-    "version": "4.2.0",
+    "author": "mattjaybe",
+    "version": "5.0.0",
     "homePage": "https://github.com/mattjaybe/SillyTavern-EchoChamber",
     "auto_update": true
 }
