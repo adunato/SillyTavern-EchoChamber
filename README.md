@@ -5,6 +5,24 @@
 
 ## 🆕 What's New
 
+### ***v5.0.0***
+* Chat Participation: You can now send messages and chat with others. Supports @mentions and comments in general. Set your username, choose an avatar color, and how many respond to you. Thanks to RetiredHippie for getting this feature started.
+* Live icon is now clickable, allowing you to quickly enable/disable Livestream. It turns orange and pulses to indicate it is processing in the background, then turns red when done and remains Live.
+* New chat style: Dark Roast. For when you want comedians to roast your story or roleplay.
+* Fancy new settings menu, giving you quick access to all EchoChamber settings and options.
+* Pop-out floating panel: now you can create a floating EchoChamber and resize it however you like and place it anywhere in SillyTavern. It remembers the position and size, even after restarting ST.
+* Drag and reorder chat styles in any order you'd like.
+* Mobile: When minimized, the entire bar can be tapped to restore EchoChamber.
+* Narrator-based chat styles like Ava/Kai (NSFW) and HypeBot continue to respond and react when Livestream is enabled.
+* Miscellaneous visual improvements and bedazzling.
+
+Bugs/Issues Fixed:
+ 
+ * Failed to process when a SillyTavern panel was pinned
+ * World Info setting token count too low, now set to 0 to use ST's max context and you can set it to any amount manually
+ * EchoChamber erroneously triggering and processing when a very slow or unresponsive LLM is used
+ * Style Manager not parsing and understanding {{user}} and {{char}}
+
 ### ***v4.2.1***
 - **General fixes**: Stopped generation on style change, fixed the limited chat history (it was getting trimmed)
 - **Proper structure:** Fixed the structure of generation calls
@@ -12,21 +30,9 @@
 ### ***v4.2.0***
 - **Pop-out window**: Open the chat in a separate window to move to another screen
 - **Improved panel controls**: Power button now truly enables/disables the extension (hides panel AND stops generation). Separate collapse arrow for just hiding the panel
-- **Include Summary**: Option to include chat summary from the Summarize extension
-- **Include World Info**: Option to include active World Info/Lorebook entries
-- **Include Persona/Character**: Options to include persona and character descriptions in context (thanks to leDissolution!)
+- **Include: Summary, World Info, Persona/Character**: Option to include more context to EchoChamber (thanks to leDissolution!)
 - **Style dropdown fix**: Menu now opens upward when panel is at bottom position
 - **Livestream resume**: Messages continue rolling after page refresh
-
-### ***ver4.1.4***
-- Increased max token limit calculations by user counts to prevent cut-offs.
-
-### ***ver4.1.3***
-- Updated the generation logic for Connection Profile, Ollama, and OpenAI-Compatible sources to use your global Max Response Length setting in SillyTavern.
-- Added an optional API Key field to the "OpenAI Compatible" settings section.
-
-### ***ver4.1.2***
-- Fixed the bug that prevented you from generating the chat feed if the last message in the chat was the user's.
 
 ![Version](https://img.shields.io/badge/SillyTavern-v1.12%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -45,9 +51,11 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🎭 **10+ Chat Styles** | Discord/Twitch, Twitter/X, Breaking News, MST3K, Thoughtful Analysis, Doomscrollers, and more |
+| 🎭 **11+ Chat Styles** | Discord/Twitch, Twitter/X, Breaking News, MST3K, AO3/Wattpad, Dark Roast, Doomscrollers, and more |
 | 🔌 **Flexible Backends** | Use your existing SillyTavern connection, or connect to Ollama, KoboldCPP, LM Studio, vLLM |
-| 📍 **4 Panel Positions** | Place the feed at the Bottom, Top, Left, or Right of your chat |
+| 📍 **5 Panel Positions** | Place the feed at the Bottom, Top, Left, or Right of your chat or choose a pop-out floating panel |
+| 💬 **Chat Participation** | Chat with commenters with @mention support |
+| 🔴 **Livestream** | Turn EchoChamber into a live chatroom |
 | ⚡ **Quick Controls** | Instantly switch styles, adjust user count, and regenerate from the panel header |
 | 🎨 **Theme-Aware** | Automatically inherits your SillyTavern theme colors |
 | ✏️ **Style Manager** | Create, edit, import, and export custom chat styles |
@@ -136,6 +144,7 @@ EchoChamber adapts to your preferred layout. Position the reaction panel anywher
 | **Top** | Fixed header above conversation |
 | **Left** | Side panel, great for wide monitors |
 | **Right** | Side panel, immersive reading experience |
+| **Pop Out** | Floating panel, can be dragged anywhere and resized |
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/96ca5e06-7668-4666-bf22-8e73283f6cfd" alt="Top position with visual novel mode" width="90%">
@@ -159,6 +168,13 @@ EchoChamber adapts to your preferred layout. Position the reaction panel anywher
 
 ## ⚙️ Configuration
 
+### Settings Modal
+
+Quickly access all EchoChamber settings and customize to your preferences:
+
+<img width="350" alt="EchoChamber Settings" src="https://github.com/user-attachments/assets/36ea287d-ef1c-473d-b55b-57899b63915d" />
+
+
 ### Settings Panel
 
 Access EchoChamber settings from the Extensions panel:
@@ -175,20 +191,11 @@ Access EchoChamber settings from the Extensions panel:
 
 > 💡 **Tip:** Using **Connection Profile** is the easiest setup—it uses your existing SillyTavern API configuration with no extra setup needed.
 
-### Content Settings
-
-- **Style** — Choose from 10+ built-in styles or your custom creations
-- **Position** — Bottom, Top, Left, or Right panel placement
-- **Users** — Number of chat participants to generate (1-20)
-- **Font** — Adjust text size for readability
-- **Opacity** — Control panel transparency
-- **Include User Input** — Include your messages in the reaction context
-
 ---
 
 ## 🎨 Style Manager
 
-Create, edit, and share custom chat styles with the powerful built-in Style Editor.
+Create, edit, and share custom chat styles with the powerful built-in Style Editor. Drag and reorder chat styles in any order you like.
 
 ### Style Editor
 
@@ -253,12 +260,13 @@ The panel header provides instant access to common actions:
 | Icon | Action |
 |------|--------|
 | Power | Toggle EchoChamber on/off |
+| Collapse | Collapse EchoChamber into a small bar |
 | Refresh | Regenerate reactions |
 | Layout | Change panel position |
 | Users | Adjust user count |
 | Font | Change text size |
-
-Click the **Style indicator bar** below the header to quickly switch between styles.
+| Clear | Clear chat and cache |
+| Settings | Quick access to all EchoChamber settings |
 
 ---
 
@@ -267,8 +275,8 @@ Click the **Style indicator bar** below the header to quickly switch between sty
 - **SillyTavern:** Version 1.12.0 or higher
 - **Backend:** Any of the following:
   - Your existing SillyTavern Chat Completion API
-  - Ollama (local)
-  - OpenAI-compatible API (KoboldCPP, LM Studio, vLLM, etc.)
+  - (Optional) Ollama (local)
+  - (Optional) OpenAI-compatible API (KoboldCPP, LM Studio, vLLM, etc.)
 
 ---
 
@@ -349,18 +357,6 @@ The reactions in the screenshots are based on this original character card. Use 
     </td>
   </tr>
 </table>
-
----
-
-## 📝 Changelog
-
-### Recent Updates
-- **Style Manager** — Create, edit, and export custom styles from the UI
-- **Connection Profiles** — Use your existing SillyTavern connections (recommended)
-- **4 Panel Positions** — Place the feed at Bottom, Top, Left, or Right
-- **Theme-Aware Colors** — Automatically adapts to your SillyTavern theme
-- **Improved Cancel UX** — Friendly "Processing cancelled" message when stopping generation
-- **Quick Style Switching** — Click the style indicator bar to instantly change styles
 
 ---
 
