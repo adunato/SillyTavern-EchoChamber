@@ -3668,7 +3668,12 @@ username: message
 
         // Chat Participation
         modal.on('change', '#ecm_chat_enabled', function () { syncToPanel('discord_chat_enabled', this.checked, true); });
-        modal.on('input', '#ecm_chat_username', function () { syncToPanel('discord_chat_username', jQuery(this).val()); });
+        modal.on('input', '#ecm_chat_username', function () {
+            const username = jQuery(this).val().trim() || 'Streamer (You)';
+            settings.chatUsername = username;
+            syncToPanel('discord_chat_username', username);
+            saveSettings();
+        });
         modal.on('input change', '#ecm_chat_avatar_color', function () {
             const color = jQuery(this).val();
             settings.chatAvatarColor = color;
