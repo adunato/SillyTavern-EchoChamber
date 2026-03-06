@@ -324,16 +324,16 @@
      */
     function updatePopoutVisibility() {
         const isMobile = window.innerWidth <= 768;
-        
+
         // Hide in settings dropdown
         const positionSelect = jQuery('#discord_position');
         if (positionSelect.length) {
             positionSelect.find('option[value="popout"]').prop('hidden', isMobile).toggleClass('mobile-hidden', isMobile);
         }
-        
+
         // Hide in toolbar layout menu
         jQuery('.ec_layout_menu .ec_menu_item[data-val="popout"]').toggle(!isMobile);
-        
+
         // Hide in overflow menu
         jQuery('.ec_of_pos_chip[data-val="popout"]').toggle(!isMobile);
     }
@@ -792,7 +792,7 @@
             document.removeEventListener('mouseup', onMouseUp);
             // Persist final position so it can be restored on next open / reload
             settings.floatLeft = parseInt(element.css('left')) || 0;
-            settings.floatTop  = parseInt(element.css('top'))  || 0;
+            settings.floatTop = parseInt(element.css('top')) || 0;
             saveSettings();
         }
     }
@@ -862,10 +862,10 @@
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
                 // Persist final size and position so they can be restored on next open / reload
-                settings.floatLeft   = parseInt(panel.css('left'))   || 0;
-                settings.floatTop    = parseInt(panel.css('top'))     || 0;
-                settings.floatWidth  = parseInt(panel.css('width'))   || 420;
-                settings.floatHeight = parseInt(panel.css('height'))  || 620;
+                settings.floatLeft = parseInt(panel.css('left')) || 0;
+                settings.floatTop = parseInt(panel.css('top')) || 0;
+                settings.floatWidth = parseInt(panel.css('width')) || 420;
+                settings.floatHeight = parseInt(panel.css('height')) || 620;
                 saveSettings();
             }
         });
@@ -960,15 +960,15 @@
         const panel = jQuery('#ec_floating_panel');
 
         // Position and size panel — restore saved values, or fall back to defaults
-        const panelW = settings.floatWidth  || 420;
+        const panelW = settings.floatWidth || 420;
         const panelH = settings.floatHeight || 620;
         const defaultLeft = Math.max(20, window.innerWidth - panelW - 24);
-        const defaultTop  = 60;
+        const defaultTop = 60;
         // Clamp restored position so the panel stays fully on-screen even after a viewport resize
         const restoredLeft = settings.floatLeft != null ? settings.floatLeft : defaultLeft;
-        const restoredTop  = settings.floatTop  != null ? settings.floatTop  : defaultTop;
-        const startLeft = Math.max(0, Math.min(window.innerWidth  - panelW, restoredLeft));
-        const startTop  = Math.max(0, Math.min(window.innerHeight - 40,     restoredTop));
+        const restoredTop = settings.floatTop != null ? settings.floatTop : defaultTop;
+        const startLeft = Math.max(0, Math.min(window.innerWidth - panelW, restoredLeft));
+        const startTop = Math.max(0, Math.min(window.innerHeight - 40, restoredTop));
         panel.css({ left: startLeft + 'px', top: startTop + 'px', width: panelW + 'px', height: panelH + 'px' });
 
         // Register as the sync target for setDiscordText / displayNextLivestreamMessage
@@ -3109,7 +3109,7 @@ username: message
         const livestreamVisible = s.livestream ? '' : 'display:none;';
 
         const modal = jQuery(`
-<div id="ec_settings_modal" role="dialog" aria-modal="true" aria-label="EchoChamber Settings">
+<div id="ec_settings_modal" role="dialog" aria-modal="true" aria-label="EchoChamber Settings" style="z-index: 200015 !important;">
   <div class="ecm_backdrop"></div>
   <div class="ecm_card">
 
@@ -3985,7 +3985,7 @@ username: message
             const isSelected = s.val === settings.style ? ' selected' : '';
             const safeVal = DOMPurify.sanitize(s.val, { ALLOWED_TAGS: [] });
             const safeLabel = DOMPurify.sanitize(s.label, { ALLOWED_TAGS: [] });
-            menu.append(`<div class="ec_menu_item${isSelected}" data-val="${safeVal}" > <i class="fa-solid fa-masks-theater"></i> ${safeLabel}</div> `);
+            menu.append(`<button type="button" class="ec_menu_item${isSelected}" data-val="${safeVal}" > <i class="fa-solid fa-masks-theater"></i> ${safeLabel}</button> `);
         });
     }
 
@@ -4431,6 +4431,9 @@ username: message
         jQuery(document).on('click touchend', '.ec_btn', function (e) {
             if (e.type === 'touchend') e.preventDefault();
             const btn = jQuery(this);
+            if (btn.hasClass('ec_style_dropdown_trigger')) {
+                return;
+            }
             const wasActive = btn.hasClass('active');
 
             jQuery('.ec_btn').removeClass('open active');
@@ -4477,7 +4480,7 @@ username: message
                 if (!wasActive) {
                     btn.addClass('open active');
                     const popup = btn.find('.ec_popup_menu');
-                    popup.show();
+                    popup.css({ zIndex: '', left: '', top: '', right: '', bottom: '', position: '' }).show();
                     // Clamp the popup so it never overflows the left edge of the viewport
                     const rect = popup[0].getBoundingClientRect();
                     if (rect.left < 8) {
@@ -4566,8 +4569,8 @@ username: message
                     chip.closest('.ec_of_acc_body').find('.ec_of_chip[data-action="position"]').removeClass('ec_of_selected');
                     chip.addClass('ec_of_selected');
                 }
-            jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+                jQuery('.ec_btn').removeClass('open active');
+                jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
             } else if (action === 'users') {
                 settings.userCount = parseInt(val);
                 saveSettings();
@@ -4595,18 +4598,19 @@ username: message
         jQuery(document).on('click', '.ec_style_dropdown_trigger', function (e) {
             const trigger = jQuery(this);
             const wasActive = trigger.hasClass('active');
-            const menu = jQuery('#ec_style_menu_body');
+            const menu = trigger.closest('.ec_float_style_btn').length ? jQuery('#ec_float_style_menu_body') : jQuery('#ec_style_menu_body');
 
             // Close other menus
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').not('#ec_style_menu_body').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('.ec_popup_menu').not('#ec_style_menu_body, #ec_float_style_menu_body').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('#ec_style_menu_body, #ec_float_style_menu_body').not(menu).hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('.ec_style_dropdown_trigger').not(trigger).removeClass('active');
 
             if (!wasActive) {
                 trigger.addClass('active');
                 // Position menu - check if panel is at bottom position
                 const rect = trigger[0].getBoundingClientRect();
                 const isBottomPosition = settings.position === 'bottom';
-                const menuHeight = menu.outerHeight() || 300; // Estimate if not visible
 
                 if (isBottomPosition) {
                     // Open upward when panel is at bottom
@@ -4639,6 +4643,9 @@ username: message
             }
             e.stopPropagation();
         });
+        jQuery(document).on('click', '.ec_popup_menu', function (e) {
+            e.stopPropagation();
+        });
 
         jQuery(document).on('click', function () {
             jQuery('.ec_btn').removeClass('open active');
@@ -4667,7 +4674,13 @@ username: message
         });
 
         // Menu Item Clicks (touchend added for mobile support)
-        jQuery(document).on('click touchend', '.ec_menu_item', function (e) {
+        jQuery(document).on('pointerup click touchend', '.ec_menu_item', function (e) {
+            if (e.type === 'click' && e.originalEvent?.pointerType) {
+                return;
+            }
+            if (e.type === 'touchend' && e.originalEvent?.changedTouches?.length === 0) {
+                return;
+            }
             if (e.type === 'touchend') {
                 // If the finger moved more than 10px, treat as a scroll — ignore
                 const touch = e.originalEvent.changedTouches[0];
@@ -4679,9 +4692,16 @@ username: message
                 }
                 e.preventDefault();
             }
+            if (e.type === 'pointerup') {
+                e.preventDefault();
+            }
             e.stopPropagation();
             const parent = jQuery(this).closest('.ec_popup_menu');
             const val = jQuery(this).data('val');
+
+            if (!parent.length || typeof val === 'undefined') {
+                return;
+            }
 
             if (parent.hasClass('ec_style_menu')) {
                 settings.style = val;
@@ -4696,6 +4716,9 @@ username: message
                 const styleObj = getAllStyles().find(s => s.val === val);
                 const styleName = styleObj ? styleObj.label : val;
                 if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName} `);
+                if (typeof generateDebounced === 'function') {
+                    generateDebounced();
+                }
             } else if (parent.hasClass('ec_layout_menu')) {
                 if (val === 'popout') {
                     // Open popout window
@@ -4761,6 +4784,9 @@ username: message
             updateStyleIndicator();
             if (discordQuickBar) discordQuickBar.find('.ec_style_select').val(val);
             syncModalFromSettings();
+            if (typeof generateDebounced === 'function') {
+                generateDebounced();
+            }
         });
 
         jQuery('#discord_source').on('change', function () {
@@ -5157,7 +5183,7 @@ username: message
 
         // Update Pop Out visibility based on screen size
         updatePopoutVisibility();
-        
+
         // Update on window resize
         jQuery(window).on('resize', debounce(() => {
             updatePopoutVisibility();

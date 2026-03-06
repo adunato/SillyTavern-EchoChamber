@@ -145,7 +145,7 @@
     border-bottom: 1px solid var(--ec-border);
     flex-shrink: 0;
     position: relative;
-    z-index: 10;
+    z-index: 200005;
     /* Default background - will be overwritten by JS when opacity is applied */
     background: rgba(0, 0, 0, 0.25);
 }
@@ -486,7 +486,7 @@
     transition: background 0.2s, opacity 0.2s;
     font-size: 0.9em;
     position: relative;
-    z-index: 2010;
+    z-index: 200002;
 }
 
 .ec_btn:hover,
@@ -708,7 +708,7 @@
     padding: 4px 12px;
     font-size: 0.75em;
     color: var(--ec-text);
-    opacity: 0.7;
+    opacity: 1;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -716,6 +716,7 @@
     position: relative;
     overflow: visible;
     /* For dropdown positioning */
+    z-index: 200003;
 }
 
 /* Make style indicator clickable when it's a dropdown trigger */
@@ -723,7 +724,13 @@
     cursor: pointer;
     transition: opacity 0.2s, background 0.2s;
     position: relative;
-    z-index: 2010;
+    z-index: 200002;
+}
+
+.ec_style_indicator .ec_dropdown_arrow,
+.ec_style_indicator span,
+.ec_style_indicator i {
+    pointer-events: none;
 }
 
 .ec_style_dropdown_trigger:hover {
@@ -758,11 +765,12 @@
     max-height: 300px;
     overflow-y: auto;
     border-radius: 0 0 8px 8px;
-    z-index: 200001;
+    z-index: 300000 !important;
     display: none;
     background: var(--SmartThemeBlurTintColor, #1a1b1e);
     border: 1px solid var(--ec-border, rgba(255, 255, 255, 0.15));
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
 }
 
 /* Cancel button with subtle glow animation */
@@ -917,7 +925,7 @@
     top: 100%;
     right: 0;
     min-width: 180px;
-    background: var(--SmartThemeBlurTintColor, #1a1b1e);
+    background: rgba(10, 14, 24, 0.98) !important;
     border: 1px solid var(--ec-border);
     border-radius: 6px;
     padding: 5px;
@@ -925,12 +933,55 @@
     z-index: 200001;
     margin-top: 5px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    opacity: 1;
+    isolation: isolate;
+    background-image: none !important;
+    mix-blend-mode: normal;
+    color: rgba(255, 255, 255, 0.96);
 }
 
 /* Ensure menus have high z-index to appear above ST UI and other extensions (including Pathweaver) */
 .ec_popup_menu,
 .ec_indicator_menu {
-    z-index: 200001;
+    z-index: 300000 !important;
+}
+
+.ec_btn {
+    z-index: 200002;
+    overflow: visible;
+}
+
+.ec_btn.open {
+    z-index: 300200 !important;
+}
+
+.ec_style_dropdown_trigger.active {
+    z-index: 300050 !important;
+}
+
+.ec_btn.open .ec_popup_menu,
+.ec_layout_menu,
+.ec_user_menu,
+.ec_font_menu,
+#ec_overflow_menu_body {
+    z-index: 300201 !important;
+}
+
+#discordQuickSettings {
+    overflow: visible;
+}
+
+#discordBar {
+    overflow: visible;
+}
+
+.ec_layout_menu,
+.ec_user_menu,
+.ec_font_menu {
+    background: rgba(10, 14, 24, 0.98) !important;
+    opacity: 1;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* User count and font size menus — cap height and add scrollbar */
@@ -953,16 +1004,24 @@
 }
 
 .ec_menu_item {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: 0;
+    width: 100%;
+    text-align: left;
     padding: 6px 12px;
     cursor: pointer;
     border-radius: 4px;
     display: flex;
     align-items: center;
     gap: 8px;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.96);
     font-size: 0.9em;
     white-space: nowrap;
     transition: background 0.15s, color 0.15s;
+    opacity: 1;
+    text-shadow: none;
 }
 
 /* Only apply hover highlight on devices that support true hover (mouse/trackpad).
@@ -1357,7 +1416,7 @@
     bottom: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(4px);
-    z-index: 10000;
+    z-index: 200010;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2256,7 +2315,7 @@
 #ec_settings_modal {
     position: fixed;
     inset: 0;
-    z-index: 100010;
+    z-index: 200011;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3066,14 +3125,14 @@
         position: fixed !important;
         inset: 0 !important;
     }
-    
+
     #ec_settings_modal.ecm_visible {
         display: flex !important;
         opacity: 1 !important;
         visibility: visible !important;
         pointer-events: all !important;
     }
-    
+
     .ecm_card {
         max-width: 100% !important;
         width: 100% !important;
@@ -3083,7 +3142,7 @@
         left: auto !important;
         transform: none !important;
     }
-    
+
     .ecm_backdrop {
         position: fixed !important;
         inset: 0 !important;
@@ -3118,7 +3177,7 @@
         border-top: 1px solid var(--ec-border, rgba(255, 255, 255, 0.1));
         margin-top: -1px;
     }
-    
+
     /* Ensure settings button is visible and has proper touch target on mobile */
     #discordQuickSettings .ec_btn {
         min-width: 36px;
@@ -3309,6 +3368,26 @@
 }
 
 /* === Field Group (label above input) === */
+.ec-s-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--ec-s-gap, 8px);
+}
+
+.ec-s-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--ec-s-gap, 8px);
+}
+
+@media (max-width: 600px) {
+
+    .ec-s-grid-2,
+    .ec-s-grid-3 {
+        grid-template-columns: 1fr;
+    }
+}
+
 .ec-s-field-group {
     display: flex;
     flex-direction: column;
@@ -3935,10 +4014,13 @@
 }
 
 @keyframes pulseStop {
-    0%, 100% {
+
+    0%,
+    100% {
         transform: scale(1);
         box-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
     }
+
     50% {
         transform: scale(1.08);
         box-shadow: 0 0 12px rgba(255, 107, 107, 0.6);
@@ -3956,11 +4038,12 @@
 }
 
 @media (max-width: 768px) {
+
     /* Hide Pop Out option in position dropdown on mobile/tablet */
     #discord_position option[value="popout"] {
         display: none;
     }
-    
+
     /* Hide Pop Out menu item in toolbar menus */
     .ec_layout_menu .ec_menu_item[data-val="popout"],
     .ec_of_pos_chip[data-val="popout"] {
@@ -3970,12 +4053,14 @@
 
 /* Also hide for very small screens */
 @media (max-width: 480px) {
+
     #discord_position option[value="popout"],
     .ec_layout_menu .ec_menu_item[data-val="popout"],
     .ec_of_pos_chip[data-val="popout"] {
         display: none !important;
     }
 }
+
 .ec_float_resize_handle {
     position: absolute;
     width: 16px;
@@ -4323,4 +4408,13 @@
 
 .ec_btn_create:active {
     transform: scale(0.97) !important;
+}
+
+/* ========================================= */
+/* SILLYTAVERN MODALS FIX                    */
+/* ========================================= */
+.popup,
+#dialogue_popup,
+#shadow_popup {
+    z-index: 200005 !important;
 }
