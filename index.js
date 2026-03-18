@@ -42,6 +42,7 @@
         contextDepth: 4,
         includePastEchoChambers: false,
         includePersona: false,
+        includeAuthorsNote: false,
         includeCharacterDescription: false,
         includeSummary: false,
         includeWorldInfo: false,
@@ -206,6 +207,92 @@
     function error(...args) { console.error(`[${EXTENSION_NAME}]`, ...args); } // Keep errors visible
 
     /**
+     * Resolve a SillyTavern macro string to its current value BEFORE embedding
+     * it in prompts sent to external APIs (Ollama, OpenAI, Profile).
+     * Those code paths bypass ST's internal substituteParams pipeline and would
+     * forward the literal macro token (e.g. "{{persona}}") to the remote model.
+     *
+     * Resolution order:
+     *  1. context.substituteParams(macro) — stable public ST API, covers all macros.
+     *  2. Source-specific fallbacks for {{persona}} and {{authorsNote}}.
+     *  3. Empty string (graceful degradation — never crashes).
+     */
+    function resolveSTMacro(context, macro) {
+        // 1. ST's own substituteParams — handles every registered macro
+        if (typeof context.substituteParams === 'function') {
+            try {
+                const resolved = context.substituteParams(macro);
+                // substituteParams returns the literal token when no value is registered
+                if (resolved !== macro) return resolved || '';
+            } catch (e) {
+                log('substituteParams failed for', macro, e);
+            }
+        }
+
+        // 2. Source-specific fallbacks
+        try {
+            if (macro === '{{persona}}') {
+                // powerUser.personas is a dict keyed by persona name;
+                // default_persona holds the currently active persona name.
+                const pu = context.powerUser;
+                if (pu && pu.personas) {
+                    const activeKey = pu.default_persona || context.name1 || '';
+                    const desc = pu.personas[activeKey] && pu.personas[activeKey].description;
+                    if (desc) return desc;
+                    // Last resort: first persona that has a description
+                    for (const key of Object.keys(pu.personas)) {
+                        if (pu.personas[key] && pu.personas[key].description)
+                            return pu.personas[key].description;
+                    }
+                }
+            }
+
+            if (macro === '{{authorsNote}}') {
+                // '{{authorsNote}}' IS a registered substituteParams macro in ST.
+                // substituteParams resolves it directly (macro names are case-insensitive),
+                // so this fallback branch is a safety net for edge cases only.
+                //
+                // ST's Author's Note extension (MODULE_NAME = 'note_to_self') stores
+                // per-chat text in chatMetadata as an OBJECT:
+                //   chatMetadata['note_to_self'] = { note: "text", position, depth, interval }
+                // The actual text is at .note — not the object itself (which would
+                // stringify to '[object Object]' and make .trim() throw a TypeError).
+                //
+                // The default/global Author's Note (applied to all chats) lives in:
+                //   extensionSettings['note_to_self'].default_note
+                const cm = context.chatMetadata;
+                if (cm) {
+                    // Per-chat Author's Note object
+                    if (cm.note_to_self && typeof cm.note_to_self === 'object' && cm.note_to_self.note) {
+                        return cm.note_to_self.note;
+                    }
+                    // Some ST versions may store it as a plain string directly
+                    if (cm.note_to_self && typeof cm.note_to_self === 'string' && cm.note_to_self.trim()) {
+                        return cm.note_to_self;
+                    }
+                    // Alternate key used in some older builds
+                    if (cm.authornote_prompt && typeof cm.authornote_prompt === 'string') {
+                        return cm.authornote_prompt;
+                    }
+                }
+                // Global default Author's Note (extensionSettings fallback)
+                const es = context.extensionSettings;
+                if (es && es.note_to_self) {
+                    if (typeof es.note_to_self === 'object') {
+                        return es.note_to_self.default_note || es.note_to_self.note || es.note_to_self.content || '';
+                    }
+                    if (typeof es.note_to_self === 'string') return es.note_to_self;
+                }
+                return '';
+            }
+        } catch (e) {
+            log('Fallback macro resolution failed for', macro, e);
+        }
+
+        return '';
+    }
+
+    /**
      * Extract text content from any API response format.
      * Handles: Anthropic content arrays (extended thinking), OpenAI format,
      * raw strings, and unknown shapes with deep extraction.
@@ -324,16 +411,16 @@
      */
     function updatePopoutVisibility() {
         const isMobile = window.innerWidth <= 768;
-
+        
         // Hide in settings dropdown
         const positionSelect = jQuery('#discord_position');
         if (positionSelect.length) {
             positionSelect.find('option[value="popout"]').prop('hidden', isMobile).toggleClass('mobile-hidden', isMobile);
         }
-
+        
         // Hide in toolbar layout menu
         jQuery('.ec_layout_menu .ec_menu_item[data-val="popout"]').toggle(!isMobile);
-
+        
         // Hide in overflow menu
         jQuery('.ec_of_pos_chip[data-val="popout"]').toggle(!isMobile);
     }
@@ -792,7 +879,7 @@
             document.removeEventListener('mouseup', onMouseUp);
             // Persist final position so it can be restored on next open / reload
             settings.floatLeft = parseInt(element.css('left')) || 0;
-            settings.floatTop = parseInt(element.css('top')) || 0;
+            settings.floatTop  = parseInt(element.css('top'))  || 0;
             saveSettings();
         }
     }
@@ -862,10 +949,10 @@
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
                 // Persist final size and position so they can be restored on next open / reload
-                settings.floatLeft = parseInt(panel.css('left')) || 0;
-                settings.floatTop = parseInt(panel.css('top')) || 0;
-                settings.floatWidth = parseInt(panel.css('width')) || 420;
-                settings.floatHeight = parseInt(panel.css('height')) || 620;
+                settings.floatLeft   = parseInt(panel.css('left'))   || 0;
+                settings.floatTop    = parseInt(panel.css('top'))     || 0;
+                settings.floatWidth  = parseInt(panel.css('width'))   || 420;
+                settings.floatHeight = parseInt(panel.css('height'))  || 620;
                 saveSettings();
             }
         });
@@ -960,15 +1047,15 @@
         const panel = jQuery('#ec_floating_panel');
 
         // Position and size panel — restore saved values, or fall back to defaults
-        const panelW = settings.floatWidth || 420;
+        const panelW = settings.floatWidth  || 420;
         const panelH = settings.floatHeight || 620;
         const defaultLeft = Math.max(20, window.innerWidth - panelW - 24);
-        const defaultTop = 60;
+        const defaultTop  = 60;
         // Clamp restored position so the panel stays fully on-screen even after a viewport resize
         const restoredLeft = settings.floatLeft != null ? settings.floatLeft : defaultLeft;
-        const restoredTop = settings.floatTop != null ? settings.floatTop : defaultTop;
-        const startLeft = Math.max(0, Math.min(window.innerWidth - panelW, restoredLeft));
-        const startTop = Math.max(0, Math.min(window.innerHeight - 40, restoredTop));
+        const restoredTop  = settings.floatTop  != null ? settings.floatTop  : defaultTop;
+        const startLeft = Math.max(0, Math.min(window.innerWidth  - panelW, restoredLeft));
+        const startTop  = Math.max(0, Math.min(window.innerHeight - 40,     restoredTop));
         panel.css({ left: startLeft + 'px', top: startTop + 'px', width: panelW + 'px', height: panelH + 'px' });
 
         // Register as the sync target for setDiscordText / displayNextLivestreamMessage
@@ -1096,29 +1183,9 @@
                 }
                 jQuery('#discordContent')[0].scrollTo({ top: 0, behavior: 'smooth' });
 
-                let targetUsername = null;
-                if (text.startsWith('@')) {
-                    const activeUsernames = [];
-                    jQuery('#discordContent .discord_username').each(function () {
-                        const name = jQuery(this).text().trim();
-                        if (name && !activeUsernames.includes(name)) activeUsernames.push(name);
-                    });
-                    activeUsernames.sort((a, b) => b.length - a.length);
-                    for (const name of activeUsernames) {
-                        if (text.startsWith('@' + name)) {
-                            const nextChar = text.substring(name.length + 1, name.length + 2);
-                            if (!nextChar || /^[ ,\.\!\?:;]/.test(nextChar)) {
-                                targetUsername = name;
-                                break;
-                            }
-                        }
-                    }
-                    if (!targetUsername) {
-                        const atMatch = text.match(/^@([^ ]+)/);
-                        targetUsername = atMatch ? atMatch[1] : null;
-                    }
-                }
-                await generateSingleReply(text, targetUsername);
+                // Parse @mention and generate targeted reply
+                const atMatch = text.match(/^@([^\s]+)/);
+                await generateSingleReply(text, atMatch ? atMatch[1] : null);
             };
 
             jQuery('#ec_float_reply_submit').on('click', handleFloatSubmit);
@@ -1212,24 +1279,40 @@
         const chat = context.chat;
         if (!chat || chat.length === 0) { isReplying = false; return; }
 
-        const cleanMsg = (text) => {
+        const cleanMessage = (text) => {
             if (!text) return '';
-            let c = text.replace(/<(thinking|think|thought|reasoning|reason)[\s\S]*?<\/\1>/gi, '').trim();
-            c = c.replace(/<[^>]*>/g, '');
-            const t = document.createElement('textarea');
-            t.innerHTML = c;
-            return t.value;
+            // Strip all thinking/reasoning tags: thinking, think, thought, reasoning, reason
+            let cleaned = text.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').trim();
+            cleaned = cleaned.replace(/<[^>]*>/g, '');
+            const txt = document.createElement("textarea");
+            txt.innerHTML = cleaned;
+            return txt.value;
         };
 
-        // Story context — last 2 messages, each capped at 3000 chars so long passages don't overwhelm
-        const storyContext = chat.filter(m => !m.is_system).slice(-2)
-            .map(m => {
-                const text = cleanMsg(m.mes);
-                return `${m.name}: ${text.length > 3000 ? text.substring(0, 3000) + '...' : text}`;
-            }).join('\n');
+        // Build context history based on settings
+        let historyMessages;
+
+        if (settings.includeUserInput) {
+            const depth = Math.max(2, Math.min(500, settings.contextDepth || 4));
+            const visibleChat = chat.filter(msg => !msg.is_system);
+            let startIdx = visibleChat.length - 1;
+
+            for (let i = visibleChat.length - 1; i >= 0 && (visibleChat.length - i) <= depth; i--) { startIdx = i; }
+            for (let i = startIdx; i >= 0; i--) {
+                if (visibleChat[i].is_user) { startIdx = i; break; }
+            }
+
+            historyMessages = visibleChat.slice(startIdx);
+            if (historyMessages.length > depth) historyMessages = historyMessages.slice(-depth);
+        } else {
+            const visibleChat = chat.filter(msg => !msg.is_system);
+            historyMessages = visibleChat.slice(-1);
+        }
+
+        const metadata = getChatMetadata();
+        const messageCommentaries = (metadata && metadata.messageCommentaries) || {};
 
         // Extract recent EchoChamber conversation from the DOM for conversational continuity.
-        // The container uses prepend() so DOM order is newest-first — reverse to get oldest-first.
         const ecMessages = [];
         jQuery('#discordContent .discord_message').slice(0, 8).each(function () {
             const uname = jQuery(this).find('.discord_username').first().text().trim();
@@ -1238,7 +1321,6 @@
         });
         const ecHistory = ecMessages.reverse().join('\n');
 
-        // Load the current chat style so replies match the room's tone and format
         const stylePrompt = await loadChatStyle(settings.style || 'twitch');
         const chatUsername = settings.chatUsername || 'Streamer (You)';
         const atUsername = `@${chatUsername}`;
@@ -1246,13 +1328,97 @@
         const baseMaxTok = targetUsername ? 200 : Math.max(200, replyCount * 80);
         const maxTok = settings.chatOverrideTokens ? (settings.chatMaxTokens || 3000) : baseMaxTok;
 
-        const systemPrompt = targetUsername
-            ? `You are "${targetUsername}", a viewer in an active chatroom who was just directly addressed. Focus tightly on what "${atUsername}" just said to you — that is the primary context. Respond naturally in 1 sentence max. Use "${atUsername}" when addressing them. STRICTLY follow the provided chat style format.`
-            : `You write short chatroom messages from different viewers reacting to "${atUsername}" (the streamer) and the ongoing conversation. Focus on the most recent exchange. Keep messages brief and casual. STRICTLY follow the provided chat style format.`;
+        let additionalSystemContext = '';
+        const systemContextParts = [];
+
+        if (settings.includePersona) {
+            const personaName = context.name1 || 'User';
+            // Resolve macro here so Ollama/OpenAI/Profile sources receive the actual
+            // text, not the literal '{{persona}}' token which they cannot substitute.
+            const personaText = resolveSTMacro(context, '{{persona}}');
+            if (personaText.trim()) {
+                systemContextParts.push(`<user_persona name="${personaName}">\n${personaText}\n</user_persona>`);
+            }
+        }
+
+        if (settings.includeAuthorsNote) {
+            const anText = resolveSTMacro(context, '{{authorsNote}}');
+            if (anText.trim()) {
+                systemContextParts.push(`<authors_note>\n${anText}\n</authors_note>`);
+            }
+        }
+
+        if (settings.includeCharacterDescription) {
+            const activeCharacters = getActiveCharacters();
+            if (activeCharacters.length > 0) {
+                const charDescriptions = activeCharacters
+                    .filter(char => char.description)
+                    .map(char => `<character name="${char.name}">\n${char.description}\n</character>`)
+                    .join('\n\n');
+                if (charDescriptions) systemContextParts.push(charDescriptions);
+            }
+        }
+
+        if (settings.includeSummary) {
+            try {
+                const memorySettings = context.extensionSettings?.memory;
+                if (memorySettings) {
+                    const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
+                    if (chatWithSummary?.extra?.memory) {
+                        systemContextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+                    }
+                }
+            } catch (e) { log('Could not get summary:', e); }
+        }
+
+        if (settings.includeWorldInfo) {
+            try {
+                const getWorldInfoFn = context.getWorldInfoPrompt || (typeof window !== 'undefined' && window.getWorldInfoPrompt);
+                const currentChat = context.chat || chat;
+                if (typeof getWorldInfoFn === 'function' && currentChat && currentChat.length > 0) {
+                    const chatForWI = currentChat.map(x => x.mes || x.message || x).filter(m => m && typeof m === 'string');
+                    const wiBudgetValue = (settings.wiBudget && settings.wiBudget > 0) ? settings.wiBudget : Number.MAX_SAFE_INTEGER;
+                    const result = await getWorldInfoFn(chatForWI, wiBudgetValue, false);
+                    const worldInfoString = result?.worldInfoString || result;
+                    if (worldInfoString && typeof worldInfoString === 'string' && worldInfoString.trim()) {
+                        systemContextParts.push(`<world_info>\n${worldInfoString.trim()}\n</world_info>`);
+                    }
+                } else if (context.activatedWorldInfo && Array.isArray(context.activatedWorldInfo) && context.activatedWorldInfo.length > 0) {
+                    const worldInfoContent = context.activatedWorldInfo.filter(entry => entry && entry.content).map(entry => entry.content).join('\n\n');
+                    if (worldInfoContent.trim()) systemContextParts.push(`<world_info>\n${worldInfoContent.trim()}\n</world_info>`);
+                }
+            } catch (e) { log('Error getting world info:', e); }
+        }
+
+        if (systemContextParts.length > 0) {
+            additionalSystemContext = '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>';
+        }
+
+        const systemMessage = targetUsername
+            ? `<role>\nYou are "${targetUsername}", a viewer in an active chatroom who was just directly addressed. Focus tightly on what "${atUsername}" just said to you — that is the primary context. Respond naturally in 1 sentence max. Use "${atUsername}" when addressing them. STRICTLY follow the provided chat style format.\n</role>${additionalSystemContext}\n\n<chat_history>`
+            : `<role>\nYou write short chatroom messages from different viewers reacting to "${atUsername}" (the streamer) and the ongoing conversation. Focus on the most recent exchange. Keep messages brief and casual. STRICTLY follow the provided chat style format.\n</role>${additionalSystemContext}\n\n<chat_history>`;
+
+        const chatHistoryMessages = [];
+        if (settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
+            for (let i = 0; i < historyMessages.length; i++) {
+                const msg = historyMessages[i];
+                const msgIndex = chat.indexOf(msg);
+                const role = msg.is_user ? 'user' : 'assistant';
+                let content = cleanMessage(msg.mes);
+                if (messageCommentaries[msgIndex]) content += `\n\n[Previous EchoChamber commentary: ${messageCommentaries[msgIndex]}]`;
+                chatHistoryMessages.push({ role, content });
+            }
+        } else {
+            for (const msg of historyMessages) {
+                const role = msg.is_user ? 'user' : 'assistant';
+                const content = cleanMessage(msg.mes);
+                chatHistoryMessages.push({ role, content });
+            }
+        }
 
         const userPrompt = targetUsername
-            ? `Story excerpt being discussed:\n${storyContext}\n\nRecent chatroom (oldest → newest):\n${ecHistory}\n\n"${atUsername}" just said to you: "${replyText}"\n\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY 1 short reply from "${targetUsername}" reacting to what "${atUsername}" just said. Your reply MUST begin by addressing them as "${atUsername}". No other chatters.\n\nFormat (follow exactly):\n${targetUsername}: ${atUsername} [your reply here]\n\nOutput only that single line.`
-            : `Story excerpt being discussed:\n${storyContext}\n\nRecent chatroom (oldest → newest):\n${ecHistory}\n\n"${atUsername}" posted: "${replyText}"\n\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY ${replyCount} short repl${replyCount === 1 ? 'y' : 'ies'} from different chatters reacting to the MOST RECENT context above. Some may address "${atUsername}" directly using "${atUsername}".\n\nFormat:\nusername: message\n\nOutput only the messages, nothing else.`;
+            ? `</chat_history>\n\n<recent_chatroom_history>\n${ecHistory}\n</recent_chatroom_history>\n\n<streamer_reply>\n"${atUsername}" just said to you: "${replyText}"\n</streamer_reply>\n\n<instructions>\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY 1 short reply from "${targetUsername}" reacting to what "${atUsername}" just said. Your reply MUST begin by addressing them as "${atUsername}". No other chatters.\n\nFormat (follow exactly):\n${targetUsername}: ${atUsername} [your reply here]\n\nOutput only that single line.\n</instructions>`
+            : `</chat_history>\n\n<recent_chatroom_history>\n${ecHistory}\n</recent_chatroom_history>\n\n<streamer_reply>\n"${atUsername}" posted: "${replyText}"\n</streamer_reply>\n\n<instructions>\nChat style format:\n${stylePrompt}\n\nWrite EXACTLY ${replyCount} short repl${replyCount === 1 ? 'y' : 'ies'} from different chatters reacting to the MOST RECENT context above. Some may address "${atUsername}" directly using "${atUsername}".\n\nFormat:\nusername: message\n\nOutput only the messages, nothing else.\n</instructions>`;
 
         abortController = new AbortController();
         userCancelled = false;
@@ -1267,6 +1433,8 @@
             setStatus(`<span><i class="fa-solid fa-circle-notch fa-spin"></i> ${typingName} is typing...</span>`);
         }
 
+        const messagesPayload = [{ role: 'system', content: systemMessage }, ...chatHistoryMessages, { role: 'user', content: userPrompt }];
+
         try {
             let result = '';
 
@@ -1279,15 +1447,15 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model: modelToUse,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        messages: messagesPayload,
                         stream: false,
-                        options: { num_predict: maxTok }
+                        options: { num_ctx: context.main?.context_size || 4096, num_predict: maxTok }
                     }),
                     signal: abortController.signal
                 });
                 if (!resp.ok) throw new Error(`Ollama error: ${resp.status}`);
                 const data = await resp.json();
-                result = data.message?.content || '';
+                result = data.message?.content || data.response || '';
 
             } else if (settings.source === 'openai') {
                 const baseUrl = settings.openai_url.replace(/\/$/, '');
@@ -1299,7 +1467,7 @@
                     },
                     body: JSON.stringify({
                         model: settings.openai_model || 'local-model',
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        messages: messagesPayload,
                         temperature: 0.85,
                         max_tokens: maxTok,
                         stream: false
@@ -1316,7 +1484,7 @@
                 if (!profile || !context.ConnectionManagerRequestService) throw new Error('Profile not available');
                 const resp = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
-                    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    messagesPayload,
                     maxTok,
                     { stream: false, signal: abortController.signal, extractData: true, includePreset: true, includeInstruct: true }
                 );
@@ -1327,7 +1495,7 @@
                 const { generateRaw } = context;
                 if (generateRaw) {
                     result = await generateRaw({
-                        prompt: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        prompt: messagesPayload,
                         quietToLoud: false
                     });
                 }
@@ -1391,7 +1559,6 @@
         }
     }
 
-    // ============================================================
     // GENERATION
     // ============================================================
 
@@ -1587,12 +1754,28 @@
         let additionalSystemContext = '';
         const systemContextParts = [];
 
-        // Include persona if enabled - use {{persona}} macro which ST substitutes automatically
+        // Include persona if enabled — resolve macro eagerly so Ollama/OpenAI/Profile
+        // sources receive the actual text, not the unresolved '{{persona}}' token.
         if (settings.includePersona) {
             const personaName = context.name1 || 'User';
-            // Use the {{persona}} macro - generateRaw will substitute it with actual persona description
-            systemContextParts.push(`<user_persona name="${personaName}">\n{{persona}}\n</user_persona>`);
-            log('Added persona macro to system message');
+            const personaText = resolveSTMacro(context, '{{persona}}');
+            if (personaText.trim()) {
+                systemContextParts.push(`<user_persona name="${personaName}">\n${personaText}\n</user_persona>`);
+                log('Added persona text to system message, length:', personaText.length);
+            } else {
+                log('Persona enabled but no text found — check ST persona settings');
+            }
+        }
+
+        // Include Author's Note if enabled
+        if (settings.includeAuthorsNote) {
+            const anText = resolveSTMacro(context, '{{authorsNote}}');
+            if (anText.trim()) {
+                systemContextParts.push(`<authors_note>\n${anText}\n</authors_note>`);
+                log('Added authors note to system message, length:', anText.length);
+            } else {
+                log("Authors note enabled but no text found — check Author's Note extension");
+            }
         }
 
         // Include character descriptions if enabled
@@ -2244,6 +2427,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle && sett
         jQuery('#discord_context_depth').val(settings.contextDepth || 4);
         jQuery('#discord_include_past_echo').prop('checked', settings.includePastEchoChambers || false);
         jQuery('#discord_include_persona').prop('checked', settings.includePersona || false);
+        jQuery('#discord_include_authors_note').prop('checked', settings.includeAuthorsNote || false);
         jQuery('#discord_include_character_description').prop('checked', settings.includeCharacterDescription || false);
         jQuery('#discord_include_summary').prop('checked', settings.includeSummary || false);
         jQuery('#discord_include_world_info').prop('checked', settings.includeWorldInfo || false);
@@ -3130,7 +3314,7 @@ username: message
         const livestreamVisible = s.livestream ? '' : 'display:none;';
 
         const modal = jQuery(`
-<div id="ec_settings_modal" role="dialog" aria-modal="true" aria-label="EchoChamber Settings" style="z-index: 200015 !important;">
+<div id="ec_settings_modal" role="dialog" aria-modal="true" aria-label="EchoChamber Settings">
   <div class="ecm_backdrop"></div>
   <div class="ecm_card">
 
@@ -3295,6 +3479,10 @@ username: message
                 <span class="ecm_label"><i class="fa-solid fa-face-smile ecm_icon"></i> Persona</span>
                 <input id="ecm_include_persona" type="checkbox" class="ecm_toggle"${s.includePersona ? ' checked' : ''}>
               </label>
+              <label class="ecm_row ecm_toggle_row" for="ecm_include_authors_note">
+                <span class="ecm_label"><i class="fa-solid fa-pen-nib ecm_icon"></i> Author's Note</span>
+                <input id="ecm_include_authors_note" type="checkbox" class="ecm_toggle"${s.includeAuthorsNote ? ' checked' : ''}>
+              </label>
               <label class="ecm_row ecm_toggle_row" for="ecm_include_character_description">
                 <span class="ecm_label"><i class="fa-solid fa-address-card ecm_icon"></i> Character Description(s)</span>
                 <input id="ecm_include_character_description" type="checkbox" class="ecm_toggle"${s.includeCharacterDescription ? ' checked' : ''}>
@@ -3382,16 +3570,6 @@ username: message
               <input id="ecm_chat_reply_count" type="number" class="ecm_input" min="1" max="12" value="${s.chatReplyCount || 3}" style="width:70px;">
             </div>
             <div class="ecm_hint">Number of AI responses after a general comment (1–12). Direct @mentions always get a single reply.</div>
-            
-            <label class="ecm_row ecm_toggle_row" style="margin-top: 10px;" for="ecm_chat_override_tokens">
-              <span class="ecm_label"><i class="fa-solid fa-coins ecm_icon"></i> Override Max Tokens</span>
-              <input id="ecm_chat_override_tokens" type="checkbox" class="ecm_toggle"${s.chatOverrideTokens ? ' checked' : ''}>
-            </label>
-            <div id="ecm_chat_max_tokens_container" class="ecm_subrow" style="${s.chatOverrideTokens ? '' : 'display:none;'}">
-              <label class="ecm_label" for="ecm_chat_max_tokens">Custom Max Tokens</label>
-              <input id="ecm_chat_max_tokens" type="number" class="ecm_input ecm_input_sm" min="10" max="8192" value="${s.chatMaxTokens || 3000}">
-            </div>
-            <div class="ecm_hint">If unchecked, uses SillyTavern's default Response Length setting.</div>
           </div>
         </section>
 
@@ -3672,6 +3850,7 @@ username: message
         modal.on('change', '#ecm_context_depth', function () { syncToPanel('discord_context_depth', jQuery(this).val()); });
         modal.on('change', '#ecm_include_past_echo', function () { syncToPanel('discord_include_past_echo', this.checked, true); });
         modal.on('change', '#ecm_include_persona', function () { syncToPanel('discord_include_persona', this.checked, true); });
+        modal.on('change', '#ecm_include_authors_note', function () { syncToPanel('discord_include_authors_note', this.checked, true); });
         modal.on('change', '#ecm_include_character_description', function () { syncToPanel('discord_include_character_description', this.checked, true); });
         modal.on('change', '#ecm_include_summary', function () { syncToPanel('discord_include_summary', this.checked, true); });
         modal.on('change', '#ecm_include_world_info', function () {
@@ -3718,26 +3897,13 @@ username: message
             jQuery('#discord_chat_avatar_color').val(color);
             saveSettings();
         });
-        modal.on('input change', '#ecm_chat_reply_count', function () {
+        modal.on('change', '#ecm_chat_reply_count', function () {
+            // Only clamp on commit (blur / Enter) so mid-edit backspacing doesn't
+            // immediately replace an empty field with the fallback value of 3.
             const val = Math.max(1, Math.min(12, parseInt(jQuery(this).val()) || 3));
             settings.chatReplyCount = val;
             jQuery(this).val(val);
-            syncToPanel('discord_chat_reply_count', val);
-            saveSettings();
-        });
-        modal.on('change', '#ecm_chat_override_tokens', function () {
-            const enabled = this.checked;
-            settings.chatOverrideTokens = enabled;
-            syncToPanel('discord_chat_override_tokens', enabled, true);
-            jQuery('#ecm_chat_max_tokens_container').toggle(enabled);
-            jQuery('#discord_chat_max_tokens_container').toggle(enabled);
-            saveSettings();
-        });
-        modal.on('input change', '#ecm_chat_max_tokens', function () {
-            const val = Math.max(10, Math.min(8192, parseInt(jQuery(this).val()) || 3000));
-            settings.chatMaxTokens = val;
-            jQuery(this).val(val);
-            syncToPanel('discord_chat_max_tokens', val);
+            jQuery('#discord_chat_reply_count').val(val);
             saveSettings();
         });
     }
@@ -3776,6 +3942,7 @@ username: message
         modal.find('#ecm_context_depth_container').toggle(!!s.includeUserInput);
         modal.find('#ecm_include_past_echo').prop('checked', s.includePastEchoChambers);
         modal.find('#ecm_include_persona').prop('checked', s.includePersona);
+        modal.find('#ecm_include_authors_note').prop('checked', s.includeAuthorsNote);
         modal.find('#ecm_include_character_description').prop('checked', s.includeCharacterDescription);
         modal.find('#ecm_include_summary').prop('checked', s.includeSummary);
         modal.find('#ecm_include_world_info').prop('checked', s.includeWorldInfo);
@@ -3792,9 +3959,6 @@ username: message
         modal.find('#ecm_chat_username').val(s.chatUsername || 'Streamer (You)');
         modal.find('#ecm_chat_avatar_color').val(s.chatAvatarColor || '#3b82f6');
         modal.find('#ecm_chat_reply_count').val(s.chatReplyCount || 3);
-        modal.find('#ecm_chat_override_tokens').prop('checked', !!s.chatOverrideTokens);
-        modal.find('#ecm_chat_max_tokens_container').toggle(!!s.chatOverrideTokens);
-        modal.find('#ecm_chat_max_tokens').val(s.chatMaxTokens || 3000);
         modal.find('#ecm_ollama_settings').toggle(s.source === 'ollama');
         modal.find('#ecm_openai_settings').toggle(s.source === 'openai');
         modal.find('#ecm_profile_settings').toggle(s.source === 'profile');
@@ -4034,7 +4198,7 @@ username: message
             const isSelected = s.val === settings.style ? ' selected' : '';
             const safeVal = DOMPurify.sanitize(s.val, { ALLOWED_TAGS: [] });
             const safeLabel = DOMPurify.sanitize(s.label, { ALLOWED_TAGS: [] });
-            menu.append(`<button type="button" class="ec_menu_item${isSelected}" data-val="${safeVal}" > <i class="fa-solid fa-masks-theater"></i> ${safeLabel}</button> `);
+            menu.append(`<div class="ec_menu_item${isSelected}" data-val="${safeVal}" > <i class="fa-solid fa-masks-theater"></i> ${safeLabel}</div> `);
         });
     }
 
@@ -4347,8 +4511,9 @@ username: message
 
         // Handle clicking a username to tag them
         jQuery(document).on('click', '.discord_username', function () {
+            const username = jQuery(this).text();
             const input = jQuery('#ec_reply_field');
-            input.val(`@${jQuery(this).text()} `).focus();
+            input.val(`@${username} `).focus();
             // Scroll the reply input into view for convenience
             const replyContainer = document.querySelector('.ec_reply_container');
             if (replyContainer) replyContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -4396,28 +4561,9 @@ username: message
             // Scroll to top so the user sees their message and the incoming reply
             jQuery('#discordContent').scrollTop(0);
 
-            let targetUsername = null;
-            if (text.startsWith('@')) {
-                const activeUsernames = [];
-                jQuery('#discordContent .discord_username').each(function () {
-                    const name = jQuery(this).text().trim();
-                    if (name && !activeUsernames.includes(name)) activeUsernames.push(name);
-                });
-                activeUsernames.sort((a, b) => b.length - a.length);
-                for (const name of activeUsernames) {
-                    if (text.startsWith('@' + name)) {
-                        const nextChar = text.substring(name.length + 1, name.length + 2);
-                        if (!nextChar || /^[ ,\.!\?:;]/.test(nextChar)) {
-                            targetUsername = name;
-                            break;
-                        }
-                    }
-                }
-                if (!targetUsername) {
-                    const atMatch = text.match(/^@([^ ]+)/);
-                    targetUsername = atMatch ? atMatch[1] : null;
-                }
-            }
+            // Parse @username mention if present, then generate a targeted single reply
+            const atMatch = text.match(/^@([^\s]+)/);
+            const targetUsername = atMatch ? atMatch[1] : null;
 
             // Generate a quick response from only the mentioned chatter (no full refresh)
             await generateSingleReply(text, targetUsername);
@@ -4435,25 +4581,6 @@ username: message
             saveSettings();
         });
 
-        jQuery(document).on('change', '#discord_chat_override_tokens', function () {
-            const enabled = this.checked;
-            settings.chatOverrideTokens = enabled;
-            jQuery('#discord_chat_max_tokens_container').toggle(enabled);
-            // Sync to modal if open
-            jQuery('#ecm_chat_override_tokens').prop('checked', enabled);
-            jQuery('#ecm_chat_max_tokens_container').toggle(enabled);
-            saveSettings();
-        });
-
-        jQuery(document).on('input change', '#discord_chat_max_tokens', function () {
-            const val = Math.max(10, Math.min(8192, parseInt(jQuery(this).val()) || 3000));
-            settings.chatMaxTokens = val;
-            jQuery(this).val(val);
-            // Sync to modal if open
-            jQuery('#ecm_chat_max_tokens').val(val);
-            saveSettings();
-        });
-
         jQuery(document).on('input', '#discord_chat_username', function () {
             settings.chatUsername = jQuery(this).val().trim() || 'Streamer (You)';
             saveSettings();
@@ -4468,7 +4595,9 @@ username: message
             saveSettings();
         });
 
-        jQuery(document).on('input change', '#discord_chat_reply_count', function () {
+        jQuery(document).on('change', '#discord_chat_reply_count', function () {
+            // Only clamp on commit (blur / Enter) so mid-edit backspacing doesn't
+            // immediately replace an empty field with the fallback value of 3.
             const val = Math.max(1, Math.min(12, parseInt(jQuery(this).val()) || 3));
             settings.chatReplyCount = val;
             jQuery(this).val(val);
@@ -4517,9 +4646,6 @@ username: message
         jQuery(document).on('click touchend', '.ec_btn', function (e) {
             if (e.type === 'touchend') e.preventDefault();
             const btn = jQuery(this);
-            if (btn.hasClass('ec_style_dropdown_trigger')) {
-                return;
-            }
             const wasActive = btn.hasClass('active');
 
             jQuery('.ec_btn').removeClass('open active');
@@ -4566,7 +4692,7 @@ username: message
                 if (!wasActive) {
                     btn.addClass('open active');
                     const popup = btn.find('.ec_popup_menu');
-                    popup.css({ zIndex: '', left: '', top: '', right: '', bottom: '', position: '' }).show();
+                    popup.show();
                     // Clamp the popup so it never overflows the left edge of the viewport
                     const rect = popup[0].getBoundingClientRect();
                     if (rect.left < 8) {
@@ -4655,8 +4781,8 @@ username: message
                     chip.closest('.ec_of_acc_body').find('.ec_of_chip[data-action="position"]').removeClass('ec_of_selected');
                     chip.addClass('ec_of_selected');
                 }
-                jQuery('.ec_btn').removeClass('open active');
-                jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
+            jQuery('.ec_btn').removeClass('open active');
+            jQuery('.ec_popup_menu').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
             } else if (action === 'users') {
                 settings.userCount = parseInt(val);
                 saveSettings();
@@ -4684,19 +4810,18 @@ username: message
         jQuery(document).on('click', '.ec_style_dropdown_trigger', function (e) {
             const trigger = jQuery(this);
             const wasActive = trigger.hasClass('active');
-            const menu = trigger.closest('.ec_float_style_btn').length ? jQuery('#ec_float_style_menu_body') : jQuery('#ec_style_menu_body');
+            const menu = jQuery('#ec_style_menu_body');
 
             // Close other menus
             jQuery('.ec_btn').removeClass('open active');
-            jQuery('.ec_popup_menu').not('#ec_style_menu_body, #ec_float_style_menu_body').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
-            jQuery('#ec_style_menu_body, #ec_float_style_menu_body').not(menu).hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
-            jQuery('.ec_style_dropdown_trigger').not(trigger).removeClass('active');
+            jQuery('.ec_popup_menu').not('#ec_style_menu_body').hide().css({ top: '', bottom: '', left: '', right: '', position: '' });
 
             if (!wasActive) {
                 trigger.addClass('active');
                 // Position menu - check if panel is at bottom position
                 const rect = trigger[0].getBoundingClientRect();
                 const isBottomPosition = settings.position === 'bottom';
+                const menuHeight = menu.outerHeight() || 300; // Estimate if not visible
 
                 if (isBottomPosition) {
                     // Open upward when panel is at bottom
@@ -4729,9 +4854,6 @@ username: message
             }
             e.stopPropagation();
         });
-        jQuery(document).on('click', '.ec_popup_menu', function (e) {
-            e.stopPropagation();
-        });
 
         jQuery(document).on('click', function () {
             jQuery('.ec_btn').removeClass('open active');
@@ -4760,13 +4882,7 @@ username: message
         });
 
         // Menu Item Clicks (touchend added for mobile support)
-        jQuery(document).on('pointerup click touchend', '.ec_menu_item', function (e) {
-            if (e.type === 'click' && e.originalEvent?.pointerType) {
-                return;
-            }
-            if (e.type === 'touchend' && e.originalEvent?.changedTouches?.length === 0) {
-                return;
-            }
+        jQuery(document).on('click touchend', '.ec_menu_item', function (e) {
             if (e.type === 'touchend') {
                 // If the finger moved more than 10px, treat as a scroll — ignore
                 const touch = e.originalEvent.changedTouches[0];
@@ -4778,16 +4894,9 @@ username: message
                 }
                 e.preventDefault();
             }
-            if (e.type === 'pointerup') {
-                e.preventDefault();
-            }
             e.stopPropagation();
             const parent = jQuery(this).closest('.ec_popup_menu');
             const val = jQuery(this).data('val');
-
-            if (!parent.length || typeof val === 'undefined') {
-                return;
-            }
 
             if (parent.hasClass('ec_style_menu')) {
                 settings.style = val;
@@ -4802,9 +4911,6 @@ username: message
                 const styleObj = getAllStyles().find(s => s.val === val);
                 const styleName = styleObj ? styleObj.label : val;
                 if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName} `);
-                if (typeof generateDebounced === 'function') {
-                    generateDebounced();
-                }
             } else if (parent.hasClass('ec_layout_menu')) {
                 if (val === 'popout') {
                     // Open popout window
@@ -4870,9 +4976,6 @@ username: message
             updateStyleIndicator();
             if (discordQuickBar) discordQuickBar.find('.ec_style_select').val(val);
             syncModalFromSettings();
-            if (typeof generateDebounced === 'function') {
-                generateDebounced();
-            }
         });
 
         jQuery('#discord_source').on('change', function () {
@@ -5007,6 +5110,13 @@ username: message
             settings.includePersona = jQuery(this).prop('checked');
             saveSettings();
             log('Include persona:', settings.includePersona);
+        });
+
+        // Include Author's Note toggle
+        jQuery('#discord_include_authors_note').on('change', function () {
+            settings.includeAuthorsNote = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include authors note:', settings.includeAuthorsNote);
         });
 
         // Include Character Description toggle
@@ -5269,7 +5379,7 @@ username: message
 
         // Update Pop Out visibility based on screen size
         updatePopoutVisibility();
-
+        
         // Update on window resize
         jQuery(window).on('resize', debounce(() => {
             updatePopoutVisibility();
