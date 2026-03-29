@@ -16,21 +16,22 @@
 - [x] Create `src/core/generator.js` (Main Generation Logic).
 - [x] Implement `generateSingleReply()` for chat participation.
 
-## Phase 4: UI Refactoring (PARTIAL)
+## Phase 4: UI Refactoring (IN PROGRESS)
 - [x] Create `src/ui/panel.js` (Render, Status, Indicators).
 - [x] Create `src/ui/settings.js` (Font/Avatar/Source/Popout Visibility).
 - [x] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
-- [ ] Implement `openSettingsModal()` and `syncModalFromSettings()`.
+- [x] Implement `syncModalFromSettings()`.
+- [ ] Implement `openSettingsModal()` fully.
 - [ ] Create `src/ui/styleEditor.js` (Full Style Editor logic).
 
 ## Phase 5: Components and Event Binding (IN PROGRESS)
 - [x] Create `src/ui/components.js` (Menu Population).
-- [ ] Migrate all 500+ lines of event listeners to `bindEventHandlers()`.
-- [ ] Implement `populateOllamaModels()` and `populateStyleMenu()` fully.
+- [x] Migrate partial event listeners to `bindEventHandlers()`.
+- [x] Implement `populateOllamaModels()` and `populateStyleMenu()` fully.
 
 ## Phase 6: Missing Features & Polish (PARTIAL)
 - [ ] Implement `openPopoutWindow()` logic.
-- [ ] Implement `toggleLivestream()` and `livestreamTick` refinements.
+- [x] Implement `toggleLivestream()` and `livestreamTick` refinements.
 - [x] Implement `formatMessage()` utility for HTML generation.
 - [ ] Restore `restoreCachedCommentary()` functionality in `index.js`.
 - [ ] Update `manifest.json` to ensure ES6 module compatibility.
