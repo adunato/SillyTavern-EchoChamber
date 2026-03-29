@@ -175,7 +175,6 @@ export function openSettingsModal() {
     const openaiVisible = s.source === 'openai' ? '' : 'display:none;';
     const profileVisible = s.source === 'profile' ? '' : 'display:none;';
     const contextDepthVisible = s.includeUserInput ? '' : 'display:none;';
-    const wibudgetVisible = s.includeWorldInfo ? '' : 'display:none;';
     const livestreamVisible = s.livestream ? '' : 'display:none;';
 
     const modal = jQuery(`
@@ -245,8 +244,14 @@ export function openSettingsModal() {
       </div>
     </div>
     <div class="ecm_footer">
-      <button class="ecm_footer_btn" id="ecm_style_manager_btn">Style Manager</button>
-      <button class="ecm_done_btn" id="ecm_done">Done</button>
+      <div class="ecm_footer_left">
+        <button class="ecm_footer_btn" id="ecm_style_manager_btn"><i class="fa-solid fa-palette"></i> Style Manager</button>
+        <button class="ecm_footer_btn" id="ecm_import_btn"><i class="fa-solid fa-file-import"></i> Import</button>
+        <input type="file" id="ecm_import_file" accept=".md" style="display:none;">
+      </div>
+      <div class="ecm_footer_right">
+        <button class="ecm_done_btn" id="ecm_done">Done</button>
+      </div>
     </div>
   </div>
 </div>`);
@@ -266,6 +271,30 @@ export function openSettingsModal() {
     modal.find('.ecm_backdrop, #ecm_close, #ecm_done').on('click', closeSettingsModal);
     modal.find('#ecm_style_manager_btn').on('click', () => { closeSettingsModal(); setTimeout(() => openStyleEditor(), 320); });
 
+    // Import button logic
+    modal.find('#ecm_import_btn').on('click', function () {
+        modal.find('#ecm_import_file').click();
+    });
+
+    modal.find('#ecm_import_file').on('change', function () {
+        const file = this.files[0];
+        if (!file) return;
+        const name = file.name.replace(/\.[^/.]+$/, "");
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const content = e.target.result;
+            const id = 'custom_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+            if (!state.settings.custom_styles) state.settings.custom_styles = {};
+            state.settings.custom_styles[id] = { name: name, prompt: content };
+            saveSettings();
+            updateAllDropdowns();
+            if (typeof toastr !== 'undefined') toastr.success(`Imported style: ${name}`);
+        };
+        reader.readAsText(file);
+        this.value = '';
+    });
+
+    // SIDEBAR / ACCORDION LOGIC
     const isMobile = () => window.innerWidth <= 768;
     const updateUiState = () => {
         if (!isMobile()) {
@@ -294,6 +323,7 @@ export function openSettingsModal() {
         if (sect) sect.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
+    // SYNC HANDLERS
     modal.on('change', '#ecm_enabled', function () { syncToPanel('discord_enabled', this.checked, true); });
     modal.on('change', '#ecm_source', function () {
         const val = jQuery(this).val();

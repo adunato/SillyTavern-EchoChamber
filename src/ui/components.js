@@ -7,6 +7,7 @@ import { saveSettings } from '../state/settingsManager.js';
 import { setDiscordText, setStatus, updateLiveIndicator, updateStyleIndicator, updateApplyLayout, updatePanelIcons, openPopoutWindow, closePopoutWindow } from './panel.js';
 import { showConfirmModal, formatMessage, debounce, resolveSTMacro } from '../utils/helpers.js';
 import { openSettingsModal, applyAvatarColor, applyFontSize, updateSourceVisibility, syncModalFromSettings, updateFloatStyleLabel } from './settings.js';
+import { openStyleEditor } from './styleEditor.js';
 
 export function populateStyleMenu(menu) {
     const menuEl = jQuery(menu);
@@ -82,7 +83,7 @@ export function bindEventHandlers() {
         updateApplyLayout(); saveSettings();
     });
 
-    jQuery(document).on('click', '.ec_btn, .ec_float_tool', function (e) {
+    jQuery(document).on('click', '.ec_btn, .ec_float_tool, .ec_style_indicator', function (e) {
         const btn = jQuery(this);
         if (btn.hasClass('ec_float_refresh') || btn.find('.fa-rotate-right').length) {
             generateDiscordChat(true);
@@ -98,6 +99,13 @@ export function bindEventHandlers() {
                 const rect = btn[0].getBoundingClientRect();
                 menu.css({ position: 'fixed', top: rect.bottom + 'px', left: rect.left + 'px', display: 'block' });
                 populateStyleMenu(menu);
+            }
+        } else if (btn.find('.ec_popup_menu').length > 0) {
+            const menu = btn.find('.ec_popup_menu');
+            const wasVisible = menu.is(':visible');
+            jQuery('.ec_popup_menu').hide();
+            if (!wasVisible) {
+                menu.show();
             }
         }
         e.stopPropagation();
@@ -119,6 +127,32 @@ export function bindEventHandlers() {
         }
         jQuery('.ec_popup_menu').hide();
         e.stopPropagation();
+    });
+
+    jQuery(document).on('click', '#discord_open_style_editor', function () {
+        openStyleEditor();
+    });
+
+    jQuery(document).on('click', '#discord_import_btn', function () {
+        jQuery('#discord_import_file').click();
+    });
+
+    jQuery(document).on('change', '#discord_import_file', function () {
+        const file = this.files[0];
+        if (!file) return;
+        const name = file.name.replace(/\.[^/.]+$/, "");
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const content = e.target.result;
+            const id = 'custom_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+            if (!state.settings.custom_styles) state.settings.custom_styles = {};
+            state.settings.custom_styles[id] = { name: name, prompt: content };
+            saveSettings();
+            updateAllDropdowns();
+            if (typeof toastr !== 'undefined') toastr.success(`Imported style: ${name}`);
+        };
+        reader.readAsText(file);
+        this.value = '';
     });
 
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());
