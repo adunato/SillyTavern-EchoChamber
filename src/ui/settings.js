@@ -3,9 +3,22 @@ import { log, warn, error } from '../utils/logger.js';
 import { saveSettings } from '../state/settingsManager.js';
 import { getAllStyles } from '../core/styles.js';
 import { populateConnectionProfiles } from './components.js';
-import { updateApplyLayout, applyFontSize, updateStyleIndicator, updateLiveIndicator } from './panel.js';
+import { updateApplyLayout, updateStyleIndicator, updateLiveIndicator } from './panel.js';
 import { toggleLivestream } from '../state/chatState.js';
 import { openStyleEditor } from './styleEditor.js';
+
+export function applyFontSize(size) {
+    let styleEl = jQuery('#discord_font_size_style');
+    if (styleEl.length === 0) {
+        styleEl = jQuery('<style id="discord_font_size_style"></style>').appendTo('head');
+    }
+    styleEl.text(`
+        .discord_container { font-size: ${size}px !important; }
+        .discord_username { font-size: ${size / 15}rem !important; }
+        .discord_content { font-size: ${(size / 15) * 0.95}rem !important; }
+        .discord_timestamp { font-size: ${(size / 15) * 0.75}rem !important; }
+    `);
+}
 
 export function applyAvatarColor(color) {
     document.documentElement.style.setProperty('--ec-user-avatar-color', color);

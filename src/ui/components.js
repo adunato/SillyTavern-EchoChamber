@@ -6,7 +6,7 @@ import { stopLivestream, clearCachedCommentary, toggleLivestream } from '../stat
 import { saveSettings } from '../state/settingsManager.js';
 import { setDiscordText, setStatus, updateLiveIndicator, updateStyleIndicator, updateApplyLayout, updatePanelIcons, openPopoutWindow, closePopoutWindow, updateFloatStyleLabel } from './panel.js';
 import { showConfirmModal, formatMessage, debounce, resolveSTMacro } from '../utils/helpers.js';
-import { openSettingsModal, applyAvatarColor, applyFontSizeUI, updateSourceVisibility, syncModalFromSettings } from './settings.js';
+import { openSettingsModal, applyAvatarColor, applyFontSize, updateSourceVisibility, syncModalFromSettings } from './settings.js';
 
 export function populateStyleMenu(menu) {
     const menuEl = jQuery(menu);
@@ -113,7 +113,7 @@ export function bindEventHandlers() {
         } else if (parent.hasClass('ec_user_menu')) {
             state.settings.userCount = parseInt(val); saveSettings();
         } else if (parent.hasClass('ec_font_menu')) {
-            state.settings.fontSize = parseInt(val); applyFontSizeUI(val); saveSettings();
+            state.settings.fontSize = parseInt(val); applyFontSize(val); saveSettings();
         } else if (parent.hasClass('ec_style_menu')) {
             state.settings.style = val; updateStyleIndicator(); updateFloatStyleLabel(); saveSettings();
         }
