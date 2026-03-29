@@ -9,9 +9,28 @@ import { setStatus, setDiscordText, updateReplyButtonState, updateLiveIndicator 
 let isReplying = false;
 
 /**
+ * Cancels any in-progress generation
+ */
+export function cancelGenerationContext() {
+    log('Cancel generation triggered');
+    if (state.debounceTimeout) {
+        clearTimeout(state.debounceTimeout);
+        state.debounceTimeout = null;
+    }
+    if (state.abortController) {
+        log('Aborting generation...');
+        state.userCancelled = true;
+        jQuery('#ec_cancel_btn').html('<i class="fa-solid fa-hourglass"></i> Stopping...').css('pointer-events', 'none');
+        jQuery('.ec_reply_stop').html('<i class="fa-solid fa-hourglass"></i>');
+        state.abortController.abort();
+    }
+}
+
+/**
  * Core generation function
  */
 export async function generateDiscordChat(showOverlay = false) {
+...
 ...
 }
 

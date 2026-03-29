@@ -1,7 +1,28 @@
 import { state, MODULE_NAME } from '../constants.js';
 import { log, warn, error } from '../utils/logger.js';
+import { saveSettings } from './settingsManager.js';
+import { updateLiveIndicator } from '../ui/panel.js';
+
+export function toggleLivestream(enable) {
+    const wasEnabled = state.settings.livestream;
+    state.settings.livestream = enable;
+    saveSettings();
+
+    jQuery('#discord_livestream').prop('checked', enable);
+    jQuery('#discord_livestream_settings').toggle(enable);
+
+    if (enable && !wasEnabled) {
+        log('Livestream enabled, triggering initial generation');
+        if (typeof window.generateDebounced === 'function') window.generateDebounced();
+    } else if (!enable && wasEnabled) {
+        log('Livestream disabled, stopping timer');
+        stopLivestream();
+    }
+    updateLiveIndicator();
+}
 
 export function getChatMetadata() {
+...
     const SillyTavern = window.SillyTavern;
     if (!SillyTavern || !SillyTavern.getContext) return null;
 

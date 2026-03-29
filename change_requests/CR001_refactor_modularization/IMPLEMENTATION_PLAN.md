@@ -10,16 +10,16 @@
 - [x] Create `src/state/settingsManager.js` (Load/Save Settings).
 - [x] Create `src/state/chatState.js` (Metadata, Livestream State).
 
-## Phase 3: Core Logic (Generation & Styles) (PARTIAL)
+## Phase 3: Core Logic (Generation & Styles) (COMPLETED)
 - [x] Create `src/core/styles.js` (Style Loading, Cache).
 - [x] Create `src/core/api.js` (Response Extraction).
 - [x] Create `src/core/generator.js` (Main Generation Logic).
-- [ ] Implement `generateSingleReply()` for chat participation.
+- [x] Implement `generateSingleReply()` for chat participation.
 
 ## Phase 4: UI Refactoring (PARTIAL)
 - [x] Create `src/ui/panel.js` (Render, Status, Indicators).
 - [x] Create `src/ui/settings.js` (Font/Avatar/Source/Popout Visibility).
-- [ ] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
+- [x] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
 - [ ] Implement `openSettingsModal()` and `syncModalFromSettings()`.
 - [ ] Create `src/ui/styleEditor.js` (Full Style Editor logic).
 
@@ -28,14 +28,14 @@
 - [ ] Migrate all 500+ lines of event listeners to `bindEventHandlers()`.
 - [ ] Implement `populateOllamaModels()` and `populateStyleMenu()` fully.
 
-## Phase 6: Missing Features & Polish (NEW)
+## Phase 6: Missing Features & Polish (PARTIAL)
 - [ ] Implement `openPopoutWindow()` logic.
 - [ ] Implement `toggleLivestream()` and `livestreamTick` refinements.
-- [ ] Implement `formatMessage()` utility for HTML generation.
+- [x] Implement `formatMessage()` utility for HTML generation.
 - [ ] Restore `restoreCachedCommentary()` functionality in `index.js`.
 - [ ] Update `manifest.json` to ensure ES6 module compatibility.
 
-## Phase 7: Final Integration & Verification
-- [ ] Finalize `index.js` entry point.
+## Phase 7: Final Integration & Verification (IN PROGRESS)
+- [x] Partial `index.js` entry point with ST events.
 - [ ] Comprehensive functional testing of all features.
 - [ ] Remove `index.js.monolith.bak`.
