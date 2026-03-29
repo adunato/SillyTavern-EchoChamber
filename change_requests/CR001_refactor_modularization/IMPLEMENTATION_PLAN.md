@@ -22,11 +22,11 @@
 - [x] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
 - [x] Implement `syncModalFromSettings()`.
 - [ ] Implement `openSettingsModal()` fully.
-- [ ] Create `src/ui/styleEditor.js` (Full Style Editor logic).
+- [x] Create `src/ui/styleEditor.js` (Full Style Editor logic).
 
 ## Phase 5: Components and Event Binding (IN PROGRESS)
 - [x] Create `src/ui/components.js` (Menu Population).
-- [x] Migrate partial event listeners to `bindEventHandlers()`.
+- [x] Migrate majority of event listeners to `bindEventHandlers()`.
 - [x] Implement `populateOllamaModels()` and `populateStyleMenu()` fully.
 
 ## Phase 6: Missing Features & Polish (PARTIAL)
