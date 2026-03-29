@@ -7,19 +7,6 @@ import { updateApplyLayout, applyFontSize, updateStyleIndicator, updateLiveIndic
 import { toggleLivestream } from '../state/chatState.js';
 import { openStyleEditor } from './styleEditor.js';
 
-export function applyFontSizeUI(size) {
-    let styleEl = jQuery('#discord_font_size_style');
-    if (styleEl.length === 0) {
-        styleEl = jQuery('<style id="discord_font_size_style"></style>').appendTo('head');
-    }
-    styleEl.text(`
-        .discord_container { font-size: ${size}px !important; }
-        .discord_username { font-size: ${size / 15}rem !important; }
-        .discord_content { font-size: ${(size / 15) * 0.95}rem !important; }
-        .discord_timestamp { font-size: ${(size / 15) * 0.75}rem !important; }
-    `);
-}
-
 export function applyAvatarColor(color) {
     document.documentElement.style.setProperty('--ec-user-avatar-color', color);
 }
@@ -69,7 +56,7 @@ export function populateOllamaModels(selectId = '#discord_model') {
                 data.models.forEach(m => select.append(new Option(m.name, m.name)));
                 select.val(state.settings.model);
             }
-        }).catch(err => log('Ollama models fetch failed (expected if local server not running)'));
+        }).catch(err => log('Ollama models fetch failed'));
 }
 
 export function closeSettingsModal() {
@@ -164,95 +151,44 @@ export function openSettingsModal() {
       <nav class="ecm_sidebar">
         <ul class="ecm_nav_list">
           <li><a class="ecm_nav_item" data-target="ecm-sect-general"><i class="fa-solid fa-power-off"></i><span>General</span></a></li>
-          <li><a class="ecm_nav_item" data-target="ecm-sect-engine"><i class="fa-solid fa-microchip"></i><span>Generation Engine</span></a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-engine"><i class="fa-solid fa-microchip"></i><span>Engine</span></a></li>
           <li><a class="ecm_nav_item" data-target="ecm-sect-display"><i class="fa-solid fa-sliders"></i><span>Display</span></a></li>
-          <li><a class="ecm_nav_item" data-target="ecm-sect-content"><i class="fa-solid fa-list-check"></i><span>Content Settings</span></a></li>
-          <li><a class="ecm_nav_item" data-target="ecm-sect-livestream"><i class="fa-solid fa-tower-broadcast"></i><span>Livestream</span></a></li>
-          <li><a class="ecm_nav_item" data-target="ecm-sect-chat"><i class="fa-solid fa-reply"></i><span>Chat Participation</span></a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-content"><i class="fa-solid fa-list-check"></i><span>Content</span></a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-livestream"><i class="fa-solid fa-tower-broadcast"></i><span>Live</span></a></li>
+          <li><a class="ecm_nav_item" data-target="ecm-sect-chat"><i class="fa-solid fa-reply"></i><span>Chat</span></a></li>
         </ul>
       </nav>
       <div class="ecm_content" id="ecm_content_pane">
-        <section class="ecm_section ecm_acc" data-acc-open id="ecm-sect-general">
-          <button class="ecm_acc_header"><span class="ecm_acc_title"><i class="fa-solid fa-power-off"></i> General</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <label class="ecm_row ecm_toggle_row" for="ecm_enabled"><span class="ecm_label">Enable EchoChamber</span><input id="ecm_enabled" type="checkbox" class="ecm_toggle"${s.enabled ? ' checked' : ''}></label>
+        <section class="ecm_section ecm_acc" id="ecm-sect-general">
+          <button class="ecm_acc_header"><span class="ecm_acc_title">General</span></button>
+          <div class="ecm_acc_body">
+            <label><span class="ecm_label">Enable</span><input id="ecm_enabled" type="checkbox"${s.enabled ? ' checked' : ''}></label>
           </div>
         </section>
         <section class="ecm_section ecm_acc" id="ecm-sect-engine">
-          <button class="ecm_acc_header"><span class="ecm_acc_title"><i class="fa-solid fa-microchip"></i> Generation Engine</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <div class="ecm_row"><label class="ecm_label" for="ecm_source">Source</label><select id="ecm_source" class="ecm_select"><option value="default"${s.source === 'default' ? ' selected' : ''}>Default (Main API)</option><option value="profile"${s.source === 'profile' ? ' selected' : ''}>Connection Profile</option><option value="ollama"${s.source === 'ollama' ? ' selected' : ''}>Ollama (Local)</option><option value="openai"${s.source === 'openai' ? ' selected' : ''}>OpenAI Compatible</option></select></div>
-            <div id="ecm_ollama_settings" class="ecm_subpanel ecm_subpanel_green" style="${ollamaVisible}"><div class="ecm_subpanel_title">Ollama</div><input id="ecm_url" type="text" class="ecm_input" placeholder="http://localhost:11434" value="${s.url || ''}"><select id="ecm_model_select" class="ecm_select"></select></div>
-            <div id="ecm_openai_settings" class="ecm_subpanel ecm_subpanel_blue" style="${openaiVisible}"><div class="ecm_subpanel_title">OpenAI</div><input id="ecm_openai_url" type="text" class="ecm_input" value="${s.openai_url || ''}"><input id="ecm_openai_key" type="password" class="ecm_input" value="${s.openai_key || ''}"><input id="ecm_openai_model" type="text" class="ecm_input" value="${s.openai_model || ''}"></div>
-            <div id="ecm_profile_settings" class="ecm_subpanel ecm_subpanel_purple" style="${profileVisible}"><div class="ecm_subpanel_title">Profile</div><select id="ecm_preset_select" class="ecm_select"></select></div>
-          </div>
-        </section>
-        <section class="ecm_section ecm_acc" id="ecm-sect-display">
-          <button class="ecm_acc_header"><span class="ecm_acc_title"><i class="fa-solid fa-sliders"></i> Display</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <div class="ecm_row"><label class="ecm_label">Style</label><select id="ecm_style" class="ecm_select">${styleOptions}</select></div>
-            <div class="ecm_row"><label class="ecm_label">Position</label><select id="ecm_position" class="ecm_select"><option value="bottom"${s.position === 'bottom' ? ' selected' : ''}>Bottom</option><option value="top"${s.position === 'top' ? ' selected' : ''}>Top</option><option value="left"${s.position === 'left' ? ' selected' : ''}>Left</option><option value="right"${s.position === 'right' ? ' selected' : ''}>Right</option></select></div>
-            <div class="ecm_row"><label class="ecm_label">Users</label><select id="ecm_user_count" class="ecm_select">${Array.from({length:20},(_,i)=>i+1).map(n=>`<option value="${n}"${s.userCount==n?' selected':''}>${n}</option>`).join('')}</select></div>
-            <div class="ecm_row"><label class="ecm_label">Font Size</label><select id="ecm_font_size" class="ecm_select">${Array.from({length:17},(_,i)=>i+8).map(n=>`<option value="${n}"${s.fontSize==n?' selected':''}>${n}</option>`).join('')}</select></div>
-            <div class="ecm_row"><label class="ecm_label">Opacity <span id="ecm_opacity_val">${s.opacity}%</span></label><input id="ecm_opacity" type="range" class="ecm_slider" min="10" max="100" step="5" value="${s.opacity}"></div>
-          </div>
-        </section>
-        <section class="ecm_section ecm_acc" id="ecm-sect-content">
-          <button class="ecm_acc_header"><span class="ecm_acc_title"><i class="fa-solid fa-list-check"></i> Content Settings</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Auto-update</span><input id="ecm_auto_update" type="checkbox" class="ecm_toggle"${s.autoUpdateOnMessages?' checked':''}></label>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Include History</span><input id="ecm_include_user" type="checkbox" class="ecm_toggle"${s.includeUserInput?' checked':''}></label>
-            <div id="ecm_context_depth_container" style="${contextDepthVisible}"><label>Depth</label><input id="ecm_context_depth" type="number" class="ecm_input" value="${s.contextDepth||4}"></div>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Persona</span><input id="ecm_include_persona" type="checkbox" class="ecm_toggle"${s.includePersona?' checked':''}></label>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Author's Note</span><input id="ecm_include_authors_note" type="checkbox" class="ecm_toggle"${s.includeAuthorsNote?' checked':''}></label>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">WI / Lorebook</span><input id="ecm_include_world_info" type="checkbox" class="ecm_toggle"${s.includeWorldInfo?' checked':''}></label>
-          </div>
-        </section>
-        <section class="ecm_section ecm_acc" id="ecm-sect-livestream">
-          <button class="ecm_acc_header"><span class="ecm_acc_title">Livestream</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Enable</span><input id="ecm_livestream" type="checkbox" class="ecm_toggle"${s.livestream?' checked':''}></label>
-            <div id="ecm_livestream_settings" style="${livestreamVisible}">
-              <div class="ecm_row"><label>Batch Size</label><input id="ecm_livestream_batch_size" type="number" class="ecm_input" value="${s.livestreamBatchSize||20}"></div>
-              <div class="ecm_row"><label>Min Wait</label><input id="ecm_livestream_min_wait" type="number" class="ecm_input" value="${s.livestreamMinWait||5}"></div>
-              <div class="ecm_row"><label>Max Wait</label><input id="ecm_livestream_max_wait" type="number" class="ecm_input" value="${s.livestreamMaxWait||60}"></div>
-            </div>
-          </div>
-        </section>
-        <section class="ecm_section ecm_acc" id="ecm-sect-chat">
-          <button class="ecm_acc_header"><span class="ecm_acc_title">Chat Participation</span><i class="ecm_acc_chevron fa-solid fa-chevron-down"></i></button>
-          <div class="ecm_acc_body" hidden>
-            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Enable</span><input id="ecm_chat_enabled" type="checkbox" class="ecm_toggle"${s.chatEnabled!==false?' checked':''}></label>
-            <div class="ecm_row"><label>Username</label><input id="ecm_chat_username" type="text" class="ecm_input" value="${s.chatUsername||'Streamer (You)'}"></div>
-            <div class="ecm_row"><label>Avatar Color</label><input id="ecm_chat_avatar_color" type="color" value="${s.chatAvatarColor||'#3b82f6'}"></div>
+          <button class="ecm_acc_header"><span class="ecm_acc_title">Engine</span></button>
+          <div class="ecm_acc_body">
+            <select id="ecm_source" class="ecm_select"><option value="default">Default</option><option value="profile">Profile</option><option value="ollama">Ollama</option><option value="openai">OpenAI</option></select>
+            <div id="ecm_ollama_settings" style="${ollamaVisible}"><input id="ecm_url" type="text" value="${s.url||''}"></div>
           </div>
         </section>
       </div>
     </div>
     <div class="ecm_footer">
-      <div class="ecm_footer_left"><button class="ecm_footer_btn" id="ecm_style_manager_btn">Style Manager</button></div>
-      <div class="ecm_footer_right"><button class="ecm_done_btn" id="ecm_done">Done</button></div>
+      <button id="ecm_style_manager_btn">Style Manager</button>
+      <button id="ecm_done">Done</button>
     </div>
   </div>
 </div>`);
 
     jQuery('body').append(modal);
-    populateOllamaModels('#ecm_model_select');
-    
-    // Populate connection profile select from existing settings panel
-    const existingProfiles = jQuery('#discord_preset_select option');
-    existingProfiles.each(function () {
-        const opt = jQuery(this).clone();
-        if (jQuery(this).val() === s.preset) opt.prop('selected', true);
-        jQuery('#ecm_preset_select').append(opt);
-    });
+    syncModalFromSettings();
 
     requestAnimationFrame(() => modal.addClass('ecm_visible'));
 
     modal.find('.ecm_backdrop, #ecm_close, #ecm_done').on('click', closeSettingsModal);
     modal.find('#ecm_style_manager_btn').on('click', () => { closeSettingsModal(); setTimeout(() => openStyleEditor(), 320); });
 
-    // Sidebar navigation and accordion logic...
     const isMobile = () => window.innerWidth <= 768;
     if (!isMobile()) {
         modal.find('.ecm_acc_body').each(function () { this.hidden = false; });
@@ -261,14 +197,8 @@ export function openSettingsModal() {
             const sect = document.getElementById(target);
             if (sect) sect.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
-    } else {
-        modal.find('.ecm_acc_header').on('click', function() {
-            const body = this.nextElementSibling;
-            body.hidden = !body.hidden;
-        });
     }
 
-    // Sync handlers
     modal.on('change', '#ecm_enabled', function () { syncToPanel('discord_enabled', this.checked, true); });
     modal.on('change', '#ecm_source', function () {
         const val = jQuery(this).val();

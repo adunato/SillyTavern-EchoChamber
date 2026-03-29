@@ -2,10 +2,10 @@ import { state, BUILT_IN_STYLES } from '../constants.js';
 import { log } from '../utils/logger.js';
 import { getAllStyles } from '../core/styles.js';
 import { saveSettings } from '../state/settingsManager.js';
-import { makeDraggable, makeFloatingPanelResizable, formatMessage } from '../utils/helpers.js';
-import { populateStyleMenu, populateConnectionProfiles } from './components.js';
-import { toggleLivestream } from '../state/chatState.js';
-import { cancelGenerationContext, generateSingleReply } from '../core/generator.js';
+import { makeDraggable, makeFloatingPanelResizable, formatMessage, showConfirmModal } from '../utils/helpers.js';
+import { populateStyleMenu } from './components.js';
+import { toggleLivestream, clearCachedCommentary } from '../state/chatState.js';
+import { cancelGenerationContext, generateDiscordChat, generateSingleReply } from '../core/generator.js';
 import { openSettingsModal } from './settings.js';
 
 export function updateReplyButtonState(isGen) {

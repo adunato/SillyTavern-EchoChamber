@@ -16,12 +16,12 @@
 - [x] Create `src/core/generator.js` (Main Generation Logic).
 - [x] Implement `generateSingleReply()` for chat participation.
 
-## Phase 4: UI Refactoring (IN PROGRESS)
+## Phase 4: UI Refactoring (COMPLETED)
 - [x] Create `src/ui/panel.js` (Render, Status, Indicators, Popout).
 - [x] Create `src/ui/settings.js` (Font/Avatar/Source/Popout Visibility, Sync).
 - [x] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
 - [x] Implement `syncModalFromSettings()`.
-- [ ] Implement `openSettingsModal()` fully.
+- [x] Implement `openSettingsModal()` fully.
 - [x] Create `src/ui/styleEditor.js` (Full Style Editor logic).
 
 ## Phase 5: Components and Event Binding (IN PROGRESS)

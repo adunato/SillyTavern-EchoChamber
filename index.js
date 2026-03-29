@@ -2,20 +2,10 @@ import { state, MODULE_NAME, EXTENSION_NAME } from './src/constants.js';
 import { log, warn, error } from './src/utils/logger.js';
 import { debounce } from './src/utils/helpers.js';
 import { loadSettings, saveSettings } from './src/state/settingsManager.js';
-import { getChatMetadata, clearCachedCommentary, stopLivestream } from './src/state/chatState.js';
+import { getChatMetadata, stopLivestream } from './src/state/chatState.js';
 import { generateDiscordChat } from './src/core/generator.js';
-import { renderPanel, updatePopoutVisibility, setStatus, setDiscordText } from './src/ui/panel.js';
+import { renderPanel, setDiscordText, setStatus, updatePopoutVisibility } from './src/ui/panel.js';
 import { bindEventHandlers, populateConnectionProfiles } from './src/ui/components.js';
-
-function onChatEvent(isMessageSent = false, shouldAutoGenerate = true) {
-    const SillyTavern = window.SillyTavern;
-    const context = SillyTavern.getContext();
-    if (!context.chatId) return;
-
-    if (shouldAutoGenerate) {
-        generateDiscordChat();
-    }
-}
 
 async function init() {
     log('Initializing modular EchoChamber...');
@@ -30,7 +20,6 @@ async function init() {
     const context = SillyTavern.getContext();
     log('Context available:', !!context);
 
-    // Load settings template
     try {
         if (context.renderExtensionTemplateAsync) {
             const moduleName = 'third-party/SillyTavern-EchoChamber';
@@ -47,7 +36,6 @@ async function init() {
     updatePopoutVisibility();
     bindEventHandlers();
 
-    // SillyTavern Events
     if (context.eventSource && context.eventTypes) {
         context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => {
             const ctx = SillyTavern.getContext();
@@ -64,14 +52,12 @@ async function init() {
                 shouldAutoGenerate = true;
             }
 
-            onChatEvent(false, shouldAutoGenerate);
+            if (shouldAutoGenerate) generateDiscordChat();
         });
 
         context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
             state.isLoadingChat = true;
             const ctx = SillyTavern.getContext();
-            
-            // Clear current display
             setDiscordText('');
             stopLivestream();
             
@@ -89,10 +75,11 @@ async function init() {
         context.eventSource.on(context.eventTypes.SETTINGS_UPDATED, () => populateConnectionProfiles());
     }
 
+    window.generateDebounced = debounce(() => generateDiscordChat(), 500);
+
     log('Initialization complete');
 }
 
-// Start when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
 } else {
