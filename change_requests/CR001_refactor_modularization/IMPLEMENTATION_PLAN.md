@@ -4,7 +4,7 @@
 - [x] Create `src/` directory structure.
 - [x] Create `src/constants.js` (Identifiers, Defaults, State).
 - [x] Create `src/utils/logger.js` (Logging).
-- [x] Create `src/utils/helpers.js` (Debounce, CleanMessage, ConfirmModal, Macros, Characters).
+- [x] Create `src/utils/helpers.js` (Debounce, CleanMessage, ConfirmModal, Macros, Characters, Draggable, Resizable).
 
 ## Phase 2: State and Settings (COMPLETED)
 - [x] Create `src/state/settingsManager.js` (Load/Save Settings).
@@ -17,8 +17,8 @@
 - [x] Implement `generateSingleReply()` for chat participation.
 
 ## Phase 4: UI Refactoring (IN PROGRESS)
-- [x] Create `src/ui/panel.js` (Render, Status, Indicators).
-- [x] Create `src/ui/settings.js` (Font/Avatar/Source/Popout Visibility).
+- [x] Create `src/ui/panel.js` (Render, Status, Indicators, Popout).
+- [x] Create `src/ui/settings.js` (Font/Avatar/Source/Popout Visibility, Sync).
 - [x] Implement `updateApplyLayout()` and `initResizeLogic()` in `panel.js`.
 - [x] Implement `syncModalFromSettings()`.
 - [ ] Implement `openSettingsModal()` fully.
@@ -29,12 +29,12 @@
 - [x] Migrate majority of event listeners to `bindEventHandlers()`.
 - [x] Implement `populateOllamaModels()` and `populateStyleMenu()` fully.
 
-## Phase 6: Missing Features & Polish (PARTIAL)
-- [ ] Implement `openPopoutWindow()` logic.
+## Phase 6: Missing Features & Polish (COMPLETED)
+- [x] Implement `openPopoutWindow()` logic.
 - [x] Implement `toggleLivestream()` and `livestreamTick` refinements.
 - [x] Implement `formatMessage()` utility for HTML generation.
-- [ ] Restore `restoreCachedCommentary()` functionality in `index.js`.
-- [ ] Update `manifest.json` to ensure ES6 module compatibility.
+- [x] Restore `restoreCachedCommentary()` functionality in `index.js`.
+- [x] Update `manifest.json` to ensure ES6 module compatibility.
 
 ## Phase 7: Final Integration & Verification (IN PROGRESS)
 - [x] Partial `index.js` entry point with ST events.
