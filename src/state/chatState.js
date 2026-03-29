@@ -51,33 +51,28 @@ export function clearCachedCommentary() {
 }
 
 export function stopLivestream() {
-    if (state.livestreamTimer || state.livestreamQueue.length > 0) {
-        warn(`[EchoChamber] stopLivestream called! Queue had ${state.livestreamQueue.length} messages remaining.`);
-    }
+...
+}
+
+export function pauseLivestream() {
     if (state.livestreamTimer) {
         clearTimeout(state.livestreamTimer);
         state.livestreamTimer = null;
     }
-    state.livestreamQueue = [];
-    state.livestreamActive = false;
-    log('Livestream stopped and queue cleared');
+}
+
+export function resumeLivestream() {
+    if (state.livestreamActive && state.livestreamQueue.length > 0) {
+        const minWait = (state.settings.livestreamMinWait || 5) * 1000;
+        const maxWait = (state.settings.livestreamMaxWait || 60) * 1000;
+        const delay = Math.random() * (maxWait - minWait) + minWait;
+        state.livestreamTimer = setTimeout(() => displayNextLivestreamMessage(), delay);
+        log('Livestream resumed, next message in', (delay / 1000).toFixed(1), 'seconds');
+    }
 }
 
 export function startLivestream(messages) {
-    stopLivestream(); // Clear any existing livestream
-
-    if (!messages || messages.length === 0) {
-        log('No messages to livestream');
-        return;
-    }
-
-    state.livestreamQueue = [...messages];
-    state.livestreamActive = true;
-
-    log('Starting livestream with', state.livestreamQueue.length, 'messages');
-
-    // Display first message immediately
-    displayNextLivestreamMessage();
+...
 }
 
 export function displayNextLivestreamMessage() {

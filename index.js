@@ -2,10 +2,20 @@ import { state, MODULE_NAME, EXTENSION_NAME } from './src/constants.js';
 import { log, warn, error } from './src/utils/logger.js';
 import { debounce } from './src/utils/helpers.js';
 import { loadSettings, saveSettings } from './src/state/settingsManager.js';
-import { getChatMetadata, restoreCachedCommentary } from './src/state/chatState.js';
+import { getChatMetadata, clearCachedCommentary, stopLivestream } from './src/state/chatState.js';
 import { generateDiscordChat } from './src/core/generator.js';
-import { renderPanel, updatePopoutVisibility } from './src/ui/panel.js';
+import { renderPanel, updatePopoutVisibility, setStatus, setDiscordText } from './src/ui/panel.js';
 import { bindEventHandlers, populateConnectionProfiles } from './src/ui/components.js';
+
+function onChatEvent(isMessageSent = false, shouldAutoGenerate = true) {
+    const SillyTavern = window.SillyTavern;
+    const context = SillyTavern.getContext();
+    if (!context.chatId) return;
+
+    if (shouldAutoGenerate) {
+        generateDiscordChat();
+    }
+}
 
 async function init() {
     log('Initializing modular EchoChamber...');
@@ -23,7 +33,7 @@ async function init() {
     // Load settings template
     try {
         if (context.renderExtensionTemplateAsync) {
-            const moduleName = 'third-party/SillyTavern-EchoChamber'; // Adjust if path differs
+            const moduleName = 'third-party/SillyTavern-EchoChamber';
             const settingsHtml = await context.renderExtensionTemplateAsync(moduleName, 'settings');
             jQuery('#extensions_settings').append(settingsHtml);
             log('Settings template loaded');
@@ -37,20 +47,45 @@ async function init() {
     updatePopoutVisibility();
     bindEventHandlers();
 
-    // Event binding
+    // SillyTavern Events
     if (context.eventSource && context.eventTypes) {
         context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => {
-            if (state.settings.autoUpdateOnMessages) {
-                generateDiscordChat();
+            const ctx = SillyTavern.getContext();
+            if (!ctx.chat || ctx.chat.length === 0) return;
+            if (state.isLoadingChat) return;
+
+            const lastMessage = ctx.chat[ctx.chat.length - 1];
+            if (!lastMessage || lastMessage.is_user) return;
+
+            let shouldAutoGenerate = false;
+            if (state.settings.livestream && state.settings.livestreamMode === 'onMessage') {
+                shouldAutoGenerate = true;
+            } else if (!state.settings.livestream && state.settings.autoUpdateOnMessages === true) {
+                shouldAutoGenerate = true;
             }
+
+            onChatEvent(false, shouldAutoGenerate);
         });
+
         context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
             state.isLoadingChat = true;
-            if (context.chatId) {
-                // Restore logic...
+            const ctx = SillyTavern.getContext();
+            
+            // Clear current display
+            setDiscordText('');
+            stopLivestream();
+            
+            if (ctx.chatId) {
+                const metadata = getChatMetadata();
+                if (metadata && metadata.generatedHtml) {
+                    setDiscordText(metadata.generatedHtml);
+                }
             }
+            
             setTimeout(() => { state.isLoadingChat = false; }, 1000);
         });
+
+        context.eventSource.on(context.eventTypes.GENERATION_STOPPED, () => setStatus(''));
         context.eventSource.on(context.eventTypes.SETTINGS_UPDATED, () => populateConnectionProfiles());
     }
 
