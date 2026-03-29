@@ -4,8 +4,9 @@ import { debounce } from './src/utils/helpers.js';
 import { loadSettings, saveSettings } from './src/state/settingsManager.js';
 import { getChatMetadata, stopLivestream } from './src/state/chatState.js';
 import { generateDiscordChat } from './src/core/generator.js';
-import { renderPanel, setDiscordText, setStatus, updatePopoutVisibility } from './src/ui/panel.js';
+import { renderPanel, setDiscordText, setStatus } from './src/ui/panel.js';
 import { bindEventHandlers, populateConnectionProfiles } from './src/ui/components.js';
+import { updatePopoutVisibility } from './src/ui/settings.js';
 
 async function init() {
     log('Initializing modular EchoChamber...');
