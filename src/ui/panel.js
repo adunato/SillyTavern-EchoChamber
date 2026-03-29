@@ -6,7 +6,7 @@ import { makeDraggable, makeFloatingPanelResizable, formatMessage, showConfirmMo
 import { populateStyleMenu } from './components.js';
 import { toggleLivestream, clearCachedCommentary } from '../state/chatState.js';
 import { cancelGenerationContext, generateDiscordChat, generateSingleReply } from '../core/generator.js';
-import { openSettingsModal } from './settings.js';
+import { openSettingsModal, updatePopoutVisibility, updateFloatStyleLabel } from './settings.js';
 
 export function updateReplyButtonState(isGen) {
     const btns = jQuery('#ec_reply_submit, #ec_float_reply_submit');
@@ -91,13 +91,13 @@ export function updateApplyLayout() {
 
 export function initResizeLogic() {
     let isResizing = false; let startX, startY, startSize;
-    jQuery(document).on('mousedown touchstart', '.ec_resize_handle', function (e) {
+    jQuery(document).off('mousedown.ec_resize touchstart.ec_resize', '.ec_resize_handle').on('mousedown.ec_resize touchstart.ec_resize', '.ec_resize_handle', function (e) {
         e.preventDefault(); e.stopPropagation(); isResizing = true;
         startX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX; startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
         const pos = state.settings.position; startSize = (pos === 'left' || pos === 'right') ? (state.settings.panelWidth || 350) : (state.settings.chatHeight || 200);
         jQuery('body').css('cursor', (pos === 'left' || pos === 'right') ? 'ew-resize' : 'ns-resize'); jQuery(this).addClass('resizing');
     });
-    jQuery(document).on('mousemove touchmove', function (e) {
+    jQuery(document).off('mousemove.ec_resize touchmove.ec_resize').on('mousemove.ec_resize touchmove.ec_resize', function (e) {
         if (!isResizing) return;
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX; const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
         const deltaX = clientX - startX; const deltaY = clientY - startY; const pos = state.settings.position;
@@ -106,7 +106,7 @@ export function initResizeLogic() {
         else if (pos === 'left') { state.settings.panelWidth = Math.max(200, Math.min(window.innerWidth - 50, startSize + deltaX)); jQuery(state.discordBar).css('width', state.settings.panelWidth + 'px'); }
         else if (pos === 'right') { state.settings.panelWidth = Math.max(200, Math.min(window.innerWidth - 50, startSize - deltaX)); jQuery(state.discordBar).css('width', state.settings.panelWidth + 'px'); }
     });
-    jQuery(document).on('mouseup touchend', function () { if (isResizing) { isResizing = false; jQuery('.ec_resize_handle').removeClass('resizing'); jQuery('body').css('cursor', ''); saveSettings(); } });
+    jQuery(document).off('mouseup.ec_resize touchend.ec_resize').on('mouseup.ec_resize touchend.ec_resize', function () { if (isResizing) { isResizing = false; jQuery('.ec_resize_handle').removeClass('resizing'); jQuery('body').css('cursor', ''); saveSettings(); } });
 }
 
 export function updateStyleIndicator(indicator) {
@@ -114,12 +114,6 @@ export function updateStyleIndicator(indicator) {
     const currentStyle = state.settings.style || 'twitch'; const styles = getAllStyles();
     const styleObj = styles.find(s => s.val === currentStyle); const styleName = styleObj ? styleObj.label : currentStyle;
     ind.html(`<div class="ec_style_name">${styleName}</div><div class="ec_style_chevron"><i class="fa-solid fa-chevron-down"></i></div>`);
-}
-
-export function updateFloatStyleLabel() {
-    const label = jQuery('.ec_float_style_label'); if (!label.length) return;
-    const styles = getAllStyles(); const styleObj = styles.find(s => s.val === state.settings.style);
-    label.text(styleObj ? styleObj.label : 'Style');
 }
 
 export function closePopoutWindow() {
@@ -170,7 +164,7 @@ export function openPopoutWindow() {
 
 export function renderPanel() {
     jQuery('#discordBar').remove();
-    state.discordBar = jQuery('<div id="discordBar"></div>').appendTo(jQuery('#chat_container'))[0];
+    state.discordBar = jQuery('<div id="discordBar"></div>')[0];
     state.discordQuickBar = jQuery('<div id="discordQuickSettings"></div>')[0];
     const leftGroup = jQuery('<div class="ec_header_left"></div>');
     const powerBtn = jQuery('<div class="ec_power_btn" title="Enable/Disable EchoChamber"><i class="fa-solid fa-power-off"></i></div>');

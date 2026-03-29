@@ -4,9 +4,9 @@ import { log } from '../utils/logger.js';
 import { generateDiscordChat, generateSingleReply, cancelGenerationContext } from '../core/generator.js';
 import { stopLivestream, clearCachedCommentary, toggleLivestream } from '../state/chatState.js';
 import { saveSettings } from '../state/settingsManager.js';
-import { setDiscordText, setStatus, updateLiveIndicator, updateStyleIndicator, updateApplyLayout, updatePanelIcons, openPopoutWindow, closePopoutWindow, updateFloatStyleLabel } from './panel.js';
+import { setDiscordText, setStatus, updateLiveIndicator, updateStyleIndicator, updateApplyLayout, updatePanelIcons, openPopoutWindow, closePopoutWindow } from './panel.js';
 import { showConfirmModal, formatMessage, debounce, resolveSTMacro } from '../utils/helpers.js';
-import { openSettingsModal, applyAvatarColor, applyFontSize, updateSourceVisibility, syncModalFromSettings } from './settings.js';
+import { openSettingsModal, applyAvatarColor, applyFontSize, updateSourceVisibility, syncModalFromSettings, updateFloatStyleLabel } from './settings.js';
 
 export function populateStyleMenu(menu) {
     const menuEl = jQuery(menu);

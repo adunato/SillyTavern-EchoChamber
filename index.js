@@ -4,9 +4,9 @@ import { debounce } from './src/utils/helpers.js';
 import { loadSettings, saveSettings } from './src/state/settingsManager.js';
 import { getChatMetadata, stopLivestream } from './src/state/chatState.js';
 import { generateDiscordChat } from './src/core/generator.js';
-import { renderPanel, setDiscordText, setStatus } from './src/ui/panel.js';
+import { renderPanel, setDiscordText, setStatus, initResizeLogic } from './src/ui/panel.js';
 import { bindEventHandlers, populateConnectionProfiles } from './src/ui/components.js';
-import { updatePopoutVisibility } from './src/ui/settings.js';
+import { updatePopoutVisibility, initEcSettingsAccordions } from './src/ui/settings.js';
 
 async function init() {
     log('Initializing modular EchoChamber...');
@@ -23,10 +23,20 @@ async function init() {
 
     try {
         if (context.renderExtensionTemplateAsync) {
-            const moduleName = 'third-party/SillyTavern-EchoChamber';
+            const scripts = document.querySelectorAll('script[src*="index.js"]');
+            let moduleName = 'third-party/SillyTavern-EchoChamber';
+            for (const script of scripts) {
+                const match = script.src.match(/extensions\/(.+?)\/index\.js/);
+                if (match && (match[1].includes('EchoChamber') || match[1].includes('DiscordChat'))) {
+                    moduleName = match[1];
+                    break;
+                }
+            }
+            log('Detected moduleName:', moduleName);
             const settingsHtml = await context.renderExtensionTemplateAsync(moduleName, 'settings');
             jQuery('#extensions_settings').append(settingsHtml);
             log('Settings template loaded');
+            initEcSettingsAccordions();
         }
     } catch (err) {
         error('Failed to load settings template:', err);
@@ -34,7 +44,15 @@ async function init() {
 
     loadSettings();
     renderPanel();
+    
+    jQuery('.ec_reply_container').toggle(state.settings.chatEnabled !== false);
     updatePopoutVisibility();
+
+    jQuery(window).on('resize', debounce(() => {
+        updatePopoutVisibility();
+    }, 250));
+
+    initResizeLogic();
     bindEventHandlers();
 
     if (context.eventSource && context.eventTypes) {
