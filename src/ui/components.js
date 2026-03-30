@@ -1,4 +1,4 @@
-import { state, MODULE_NAME } from '../constants.js';
+import { state, MODULE_NAME, defaultSettings } from '../constants.js';
 import { getAllStyles } from '../core/styles.js';
 import { log } from '../utils/logger.js';
 import { generateDiscordChat, generateSingleReply, cancelGenerationContext } from '../core/generator.js';
@@ -353,6 +353,26 @@ export function bindEventHandlers() {
     jQuery(document).on('input', '#discord_system_prompt_assistant', function () {
         state.settings.systemPromptAssistant = jQuery(this).val();
         saveSettings();
+    });
+
+    jQuery(document).on('click', '#discord_reset_system_prompt_chat_stream', function () {
+        showConfirmModal('Reset Chat Stream prompt to default?', () => {
+            const defaultValue = defaultSettings.systemPromptChatStream;
+            state.settings.systemPromptChatStream = defaultValue;
+            jQuery('#discord_system_prompt_chat_stream').val(defaultValue);
+            saveSettings();
+            if (typeof toastr !== 'undefined') toastr.success('Chat Stream prompt reset to default');
+        });
+    });
+
+    jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function () {
+        showConfirmModal('Reset Assistant prompt to default?', () => {
+            const defaultValue = defaultSettings.systemPromptAssistant;
+            state.settings.systemPromptAssistant = defaultValue;
+            jQuery('#discord_system_prompt_assistant').val(defaultValue);
+            saveSettings();
+            if (typeof toastr !== 'undefined') toastr.success('Assistant prompt reset to default');
+        });
     });
 
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());

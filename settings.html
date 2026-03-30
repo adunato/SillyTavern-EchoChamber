@@ -88,16 +88,26 @@
 
                         <!-- System Prompts -->
                         <div class="ec-s-field-group">
-                            <label class="ec-s-field-label">
-                                <i class="fa-solid fa-terminal"></i> System Prompt (Chat Stream)
-                            </label>
+                            <div class="ec-s-label-row">
+                                <label class="ec-s-field-label">
+                                    <i class="fa-solid fa-terminal"></i> System Prompt (Chat Stream)
+                                </label>
+                                <button id="discord_reset_system_prompt_chat_stream" class="menu_button ec-s-reset-btn" title="Reset to Default">
+                                    <i class="fa-solid fa-rotate-left"></i> Reset
+                                </button>
+                            </div>
                             <textarea id="discord_system_prompt_chat_stream" class="text_pole ec-s-textarea" rows="6" placeholder="System prompt for chat stream styles..."></textarea>
                         </div>
 
                         <div class="ec-s-field-group">
-                            <label class="ec-s-field-label">
-                                <i class="fa-solid fa-terminal"></i> System Prompt (Assistant)
-                            </label>
+                            <div class="ec-s-label-row">
+                                <label class="ec-s-field-label">
+                                    <i class="fa-solid fa-terminal"></i> System Prompt (Assistant)
+                                </label>
+                                <button id="discord_reset_system_prompt_assistant" class="menu_button ec-s-reset-btn" title="Reset to Default">
+                                    <i class="fa-solid fa-rotate-left"></i> Reset
+                                </button>
+                            </div>
                             <textarea id="discord_system_prompt_assistant" class="text_pole ec-s-textarea" rows="6" placeholder="System prompt for assistant styles..."></textarea>
                         </div>
                         <div class="ec-s-hint">

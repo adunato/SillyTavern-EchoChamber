@@ -1,4 +1,22 @@
-/* EchoChamber Clean Overhaul CSS */
+.ec-s-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.ec-s-reset-btn {
+    padding: 2px 8px !important;
+    font-size: 0.8em !important;
+    height: auto !important;
+    margin: 0 !important;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.ec-s-reset-btn:hover {
+    opacity: 1;
+}
 
 /* --- Variables & Theme --- */
 :root {

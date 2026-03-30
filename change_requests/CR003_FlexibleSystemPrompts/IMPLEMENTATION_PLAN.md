@@ -19,10 +19,17 @@ Modify `src/core/generator.js`:
 ### Step 3: Update Settings UI
 Modify `settings.html`:
 -   Add two new textareas under the Generation Engine section for the base prompts.
+-   Add "Reset to Default" buttons next to each textarea.
 
 Modify `src/ui/settings.js`:
 -   Update `loadSettings` and `syncModalFromSettings` to handle the new prompt fields.
 -   Add event listeners to sync changes from the textareas to the settings object.
+
+Modify `src/ui/components.js`:
+-   Add event listeners for the reset buttons to restore values from `defaultSettings`.
+
+Modify `style.css`:
+-   Add styling for label rows and reset buttons to ensure proper alignment.
 
 ### Step 4: Update Style Editor
 Modify `src/ui/styleEditor.js`:

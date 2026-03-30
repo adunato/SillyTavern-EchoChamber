@@ -58,7 +58,9 @@ Currently, the system prompt in EchoChamber is hardcoded in the generator logic.
     ```
 
 ### UI Updates
--   **Settings Panel**: Add two large textareas in the "Generation Engine" section for editing the two base prompts.
+-   **Settings Panel**: 
+    -   Add two large textareas in the "Generation Engine" section for editing the two base prompts.
+    -   Add a **"Reset" button** next to each textarea to quickly restore the default prompt from the extension source code.
 -   **Style Editor**: Add a toggle/select for "Style Type" (Chat Stream / Assistant). This is primarily for custom styles.
 
 ### Generator Updates
