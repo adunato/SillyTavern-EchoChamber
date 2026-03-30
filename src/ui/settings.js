@@ -98,6 +98,27 @@ function syncToPanel(panelId, value, isProp = false) {
     }
 }
 
+export function updateSummaryLabels() {
+    if (typeof window.SceneSummariser !== 'undefined') {
+        const searchText = "Summary (from Summarize ext.)";
+        const newText = "Summary (from Scene Summarizer ext.)";
+
+        // Update main settings panel
+        jQuery('.ec-s-panel .ec-s-label-text').each(function() {
+            if (jQuery(this).text().trim() === searchText) {
+                jQuery(this).html(jQuery(this).html().replace(searchText, newText));
+            }
+        });
+
+        // Update settings modal
+        jQuery('#ec_settings_modal .ecm_label').each(function() {
+             if (jQuery(this).text().trim() === searchText) {
+                jQuery(this).html(jQuery(this).html().replace(searchText, newText));
+            }
+        });
+    }
+}
+
 export function syncModalFromSettings() {
     const m = jQuery('#ec_settings_modal');
     if (!m.length) return;
@@ -141,6 +162,7 @@ export function syncModalFromSettings() {
     m.find('#ecm_chat_avatar_color').val(s.chatAvatarColor || '#3b82f6');
     m.find('#ecm_chat_reply_count').val(s.chatReplyCount || 3);
     updateSourceVisibility();
+    updateSummaryLabels();
 }
 
 export function initEcSettingsAccordions() {
@@ -170,7 +192,7 @@ export function openSettingsModal() {
     const s = state.settings;
     const styles = getAllStyles();
     const styleOptions = styles.map(st => `<option value="${st.val}"${s.style === st.val ? ' selected' : ''}>${st.label}</option>`).join('');
-    
+
     const ollamaVisible = s.source === 'ollama' ? '' : 'display:none;';
     const openaiVisible = s.source === 'openai' ? '' : 'display:none;';
     const profileVisible = s.source === 'profile' ? '' : 'display:none;';
@@ -227,6 +249,9 @@ export function openSettingsModal() {
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Include History</span><input id="ecm_include_user" type="checkbox" class="ecm_toggle"${s.includeUserInput?' checked':''}></label>
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Persona</span><input id="ecm_include_persona" type="checkbox" class="ecm_toggle"${s.includePersona?' checked':''}></label>
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Author's Note</span><input id="ecm_include_authors_note" type="checkbox" class="ecm_toggle"${s.includeAuthorsNote?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Character Description</span><input id="ecm_include_character_description" type="checkbox" class="ecm_toggle"${s.includeCharacterDescription?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Summary (from Summarize ext.)</span><input id="ecm_include_summary" type="checkbox" class="ecm_toggle"${s.includeSummary?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">World Info</span><input id="ecm_include_world_info" type="checkbox" class="ecm_toggle"${s.includeWorldInfo?' checked':''}></label>
           </div>
         </section>
         <section class="ecm_section ecm_acc" id="ecm-sect-livestream">
@@ -258,7 +283,7 @@ export function openSettingsModal() {
 
     jQuery('body').append(modal);
     populateOllamaModels('#ecm_model_select');
-    
+    updateSummaryLabels();    
     const existingProfiles = jQuery('#discord_preset_select option');
     existingProfiles.each(function () {
         const opt = jQuery(this).clone();
@@ -332,6 +357,13 @@ export function openSettingsModal() {
         modal.find('#ecm_openai_settings').toggle(val === 'openai');
         modal.find('#ecm_profile_settings').toggle(val === 'profile');
     });
+    modal.on('input', '#ecm_url', function () { syncToPanel('discord_url', jQuery(this).val()); });
+    modal.on('change', '#ecm_model_select', function () { syncToPanel('discord_model_select', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_url', function () { syncToPanel('discord_openai_url', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_key', function () { syncToPanel('discord_openai_key', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_model', function () { syncToPanel('discord_openai_model', jQuery(this).val()); });
+    modal.on('change', '#ecm_preset_select', function () { syncToPanel('discord_preset_select', jQuery(this).val()); });
+
     modal.on('change', '#ecm_style', function () {
         const val = jQuery(this).val();
         state.settings.style = val;
@@ -352,4 +384,32 @@ export function openSettingsModal() {
         modal.find('#ecm_opacity_val').text(val + '%');
         syncToPanel('discord_opacity', val);
     });
+
+    modal.on('change', '#ecm_auto_update', function () { syncToPanel('discord_auto_update', this.checked, true); });
+    modal.on('change', '#ecm_include_user', function () { syncToPanel('discord_include_user', this.checked, true); });
+    modal.on('input', '#ecm_context_depth', function () { syncToPanel('discord_context_depth', jQuery(this).val()); });
+    modal.on('change', '#ecm_include_past_echo', function () { syncToPanel('discord_include_past_echo', this.checked, true); });
+    modal.on('change', '#ecm_include_persona', function () { syncToPanel('discord_include_persona', this.checked, true); });
+    modal.on('change', '#ecm_include_authors_note', function () { syncToPanel('discord_include_authors_note', this.checked, true); });
+    modal.on('change', '#ecm_include_character_description', function () { syncToPanel('discord_include_character_description', this.checked, true); });
+    modal.on('change', '#ecm_include_summary', function () { syncToPanel('discord_include_summary', this.checked, true); });
+    modal.on('change', '#ecm_include_world_info', function () { syncToPanel('discord_include_world_info', this.checked, true); });
+    modal.on('input', '#ecm_wi_budget', function () { syncToPanel('discord_wi_budget', jQuery(this).val()); });
+
+    modal.on('change', '#ecm_livestream', function () { syncToPanel('discord_livestream', this.checked, true); });
+    modal.on('input', '#ecm_livestream_batch_size', function () { syncToPanel('discord_livestream_batch_size', jQuery(this).val()); });
+    modal.on('input', '#ecm_livestream_min_wait', function () { syncToPanel('discord_livestream_min_wait', jQuery(this).val()); });
+    modal.on('input', '#ecm_livestream_max_wait', function () { syncToPanel('discord_livestream_max_wait', jQuery(this).val()); });
+    modal.on('change', 'input[name="ecm_livestream_mode"]', function () {
+        const val = jQuery(this).val();
+        syncToPanel(`discord_livestream_${val}`, true, true);
+    });
+
+    modal.on('change', '#ecm_chat_enabled', function () { syncToPanel('discord_chat_enabled', this.checked, true); });
+    modal.on('input', '#ecm_chat_username', function () { syncToPanel('discord_chat_username', jQuery(this).val()); });
+    modal.on('change', '#ecm_chat_avatar_color', function () { syncToPanel('discord_chat_avatar_color', jQuery(this).val()); });
+    modal.on('input', '#ecm_chat_reply_count', function () { syncToPanel('discord_chat_reply_count', jQuery(this).val()); });
+
+    modal.on('change', '#ecm_chat_override_tokens', function () { syncToPanel('discord_chat_override_tokens', this.checked, true); });
+    modal.on('input', '#ecm_chat_max_tokens', function () { syncToPanel('discord_chat_max_tokens', jQuery(this).val()); });
 }
