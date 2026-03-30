@@ -188,6 +188,8 @@ export async function generateDiscordChat(showOverlay = false) {
     const additionalSystemContext = systemContextParts.length > 0 ? '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
     const systemMessage = `<role>\nYou are an excellent creator of fake chat feeds that react dynamically to the user's conversation context.\n</role>${additionalSystemContext}\n\n<chat_history>`;
 
+    log('Generated System Message:', systemMessage);
+
     let countInstruction = '';
     if (isNarratorStyle && state.settings.livestream && !showOverlay) {
         countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} messages. Not fewer, not more - exactly ${messageCount} messages from the same narrator/character.\n\n`;
@@ -387,8 +389,51 @@ export async function generateSingleReply(replyText, targetUsername) {
         const anText = resolveSTMacro(context, '{{authorsNote}}');
         if (anText.trim()) systemContextParts.push(`<authors_note>\n${anText}\n</authors_note>`);
     }
-    
+    if (state.settings.includeCharacterDescription) {
+        const activeCharacters = getActiveCharacters();
+        if (activeCharacters.length > 0) {
+            const charDescriptions = activeCharacters
+                .filter(char => char.description)
+                .map(char => `<character name="${char.name}">\n${char.description}\n</character>`)
+                .join('\n\n');
+            if (charDescriptions) {
+                systemContextParts.push(charDescriptions);
+            }
+        }
+    }
+    if (state.settings.includeSummary) {
+        try {
+            if (typeof window.SceneSummariser !== 'undefined' && typeof window.SceneSummariser.getCurrentSummary === 'function') {
+                const summary = window.SceneSummariser.getCurrentSummary();
+                if (summary) {
+                    systemContextParts.push(`<summary>\n${summary}\n</summary>`);
+                    log('Added summary from Scene Summariser API (Single Reply)');
+                }
+            } else {
+                const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
+                if (chatWithSummary?.extra?.memory) {
+                    systemContextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+                }
+            }
+        } catch (e) { log('Could not get summary:', e); }
+    }
+    if (state.settings.includeWorldInfo) {
+        try {
+            const getWorldInfoFn = context.getWorldInfoPrompt || window.getWorldInfoPrompt;
+            if (typeof getWorldInfoFn === 'function' && chat.length > 0) {
+                const chatForWI = chat.map(x => x.mes || x.message || x).filter(m => m && typeof m === 'string');
+                const wiBudgetValue = (state.settings.wiBudget && state.settings.wiBudget > 0) ? state.settings.wiBudget : Number.MAX_SAFE_INTEGER;
+                const result = await getWorldInfoFn(chatForWI, wiBudgetValue, false);
+                const worldInfoString = result?.worldInfoString || result;
+                if (worldInfoString && typeof worldInfoString === 'string' && worldInfoString.trim()) {
+                    systemContextParts.push(`<world_info>\n${worldInfoString.trim()}\n</world_info>`);
+                }
+            }
+        } catch (e) { log('Error getting world info:', e); }
+    }
+
     const additionalSystemContext = systemContextParts.length > 0 ? '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
+
     const systemMessage = `<role>\nYou are an excellent creator of fake chat feed reactions.\n</role>${additionalSystemContext}\n\n<chat_history>`;
     
     let targetInstruction = targetUsername ? `IMPORTANT: You MUST generate a direct reply from the user "${targetUsername}" back to the streamer.` : `IMPORTANT: You MUST generate EXACTLY ${replyCount} chat messages reacting to the streamer.`;
