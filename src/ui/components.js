@@ -373,24 +373,29 @@ export function bindEventHandlers() {
         saveSettings();
     });
 
-    jQuery(document).on('click', '#discord_reset_system_prompt_chat_stream', function () {
+    // RESET SYSTEM PROMPTS
+    jQuery(document).on('click', '#discord_reset_system_prompt_chat_stream', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         showConfirmModal('Reset Chat Stream prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptChatStream;
             state.settings.systemPromptChatStream = defaultValue;
             jQuery('#discord_system_prompt_chat_stream').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Chat Stream prompt reset to default');
-        }, null, 'Reset');
+        }, 'Reset');
     });
 
-    jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function () {
+    jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         showConfirmModal('Reset Assistant prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptAssistant;
             state.settings.systemPromptAssistant = defaultValue;
             jQuery('#discord_system_prompt_assistant').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Assistant prompt reset to default');
-        }, null, 'Reset');
+        }, 'Reset');
     });
 
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());
