@@ -103,7 +103,10 @@ export function bindEventHandlers() {
         if (btn.hasClass('ec_float_refresh') || btn.find('.fa-rotate-right').length) {
             generateDiscordChat(true);
         } else if (btn.hasClass('ec_float_clear') || btn.find('.fa-trash-can').length) {
-            showConfirmModal('Clear chat?').then(c => { if (c) { setDiscordText(''); clearCachedCommentary(); } });
+            showConfirmModal('Clear chat?', () => {
+                setDiscordText('');
+                clearCachedCommentary();
+            }, 'Clear');
         } else if (btn.hasClass('ec_float_settings') || btn.find('.fa-gear').length) {
             openSettingsModal();
         } else if (btn.hasClass('ec_style_indicator') || btn.hasClass('ec_float_style_btn')) {
@@ -374,20 +377,20 @@ export function bindEventHandlers() {
         showConfirmModal('Reset Chat Stream prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptChatStream;
             state.settings.systemPromptChatStream = defaultValue;
-            jQuery('#discord_system_prompt_chat_stream').val(defaultValue);
+            jQuery('#discord_system_prompt_chat_stream').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Chat Stream prompt reset to default');
-        });
+        }, null, 'Reset');
     });
 
     jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function () {
         showConfirmModal('Reset Assistant prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptAssistant;
             state.settings.systemPromptAssistant = defaultValue;
-            jQuery('#discord_system_prompt_assistant').val(defaultValue);
+            jQuery('#discord_system_prompt_assistant').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Assistant prompt reset to default');
-        });
+        }, null, 'Reset');
     });
 
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());
