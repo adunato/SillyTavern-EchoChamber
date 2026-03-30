@@ -506,12 +506,15 @@ export async function generateSingleReply(replyText, targetUsername) {
         { role: 'system', content: finalPrompt },
         { role: 'user', content: 'Generate reply now.' }
     ];
+    
+    log('Messages array for API:', JSON.stringify(messages, null, 2));
 
     state.abortController = new AbortController();
 
     try {
         let result = '';
         const source = state.settings.source || 'default';
+        log(`Using source: ${source}`);
 
         if (source === 'profile' && state.settings.preset) {
             const cm = context.extensionSettings?.connectionManager;
@@ -558,9 +561,13 @@ export async function generateSingleReply(replyText, targetUsername) {
             result = extractTextFromResponse(data);
         } else {
             if (context.generateRaw) {
+                log('Calling context.generateRaw with messages array...');
                 result = await context.generateRaw({ prompt: messages, quietToLoud: false });
             }
         }
+
+        log(`Raw API result length: ${result?.length || 0}`);
+        log(`Raw API result: "${result}"`);
 
         if (state.abortController.signal.aborted) throw new Error('Generation aborted');
 
