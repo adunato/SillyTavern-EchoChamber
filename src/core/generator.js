@@ -503,36 +503,66 @@ export async function generateSingleReply(replyText, targetUsername) {
     log('Generated System Message (Single Reply):', finalPrompt);
 
     const messages = [
-        { role: 'system', content: finalPrompt }
+        { role: 'system', content: finalPrompt },
+        { role: 'user', content: 'Generate reply now.' }
     ];
+
+    state.abortController = new AbortController();
 
     try {
         let result = '';
         const source = state.settings.source || 'default';
 
         if (source === 'profile' && state.settings.preset) {
-            const profileId = context.extensionSettings?.connectionManager?.profiles?.find(p => p.name === state.settings.preset)?.id;
-            const response = await context.ConnectionManagerRequestService.sendRequest(profileId, messages, maxTok, { stream: false, extractData: true, includePreset: true, includeInstruct: true });
+            const cm = context.extensionSettings?.connectionManager;
+            const profile = cm?.profiles?.find(p => p.name === state.settings.preset);
+            if (!profile) throw new Error(`Profile '${state.settings.preset}' not found`);
+
+            const response = await context.ConnectionManagerRequestService.sendRequest(
+                profile.id, messages, maxTok,
+                { stream: false, signal: state.abortController.signal, extractData: true, includePreset: true, includeInstruct: true }
+            );
             result = extractTextFromResponse(response);
         } else if (source === 'ollama') {
             const response = await fetch(`${state.settings.url.replace(/\/$/, '')}/api/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ model: state.settings.model, messages: messages, stream: false, options: { num_predict: maxTok } })
+                body: JSON.stringify({
+                    model: state.settings.model,
+                    messages: messages,
+                    stream: false,
+                    options: { num_ctx: context.main?.context_size || 4096, num_predict: maxTok }
+                }),
+                signal: state.abortController.signal
             });
+            if (!response.ok) throw new Error(`Ollama API Error(${response.status})`);
             const data = await response.json();
             result = data.message?.content || data.response || '';
         } else if (source === 'openai') {
             const response = await fetch(`${state.settings.openai_url.replace(/\/$/, '')}/chat/completions`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(state.settings.openai_key ? { 'Authorization': `Bearer ${state.settings.openai_key}` } : {}) },
-                body: JSON.stringify({ model: state.settings.openai_model || 'local-model', messages: messages, max_tokens: maxTok, stream: false })
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(state.settings.openai_key ? { 'Authorization': `Bearer ${state.settings.openai_key}` } : {})
+                },
+                body: JSON.stringify({
+                    model: state.settings.openai_model || 'local-model',
+                    messages: messages,
+                    max_tokens: maxTok,
+                    stream: false
+                }),
+                signal: state.abortController.signal
             });
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
             const data = await response.json();
             result = extractTextFromResponse(data);
-        } else if (context.generateRaw) {
-            result = await context.generateRaw({ prompt: messages, quietToLoud: false });
+        } else {
+            if (context.generateRaw) {
+                result = await context.generateRaw({ prompt: messages, quietToLoud: false });
+            }
         }
+
+        if (state.abortController.signal.aborted) throw new Error('Generation aborted');
 
         let cleanResult = result.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').replace(/<\/?discordchat>/gi, '').trim();
         const container = jQuery('#discordContent .discord_container');
