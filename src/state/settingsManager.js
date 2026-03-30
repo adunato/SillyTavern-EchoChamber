@@ -94,8 +94,12 @@ export function loadSettings() {
     jQuery('#discord_chat_avatar_color').val(state.settings.chatAvatarColor || '#3b82f6');
     jQuery('#discord_chat_reply_count').val(state.settings.chatReplyCount || 3);
     jQuery('.ec_reply_container').toggle(state.settings.chatEnabled !== false);
-    
+
+    jQuery('#discord_system_prompt_chat_stream').val(state.settings.systemPromptChatStream);
+    jQuery('#discord_system_prompt_assistant').val(state.settings.systemPromptAssistant);
+
     applyAvatarColor(state.settings.chatAvatarColor || '#3b82f6');
+
     applyFontSize(state.settings.fontSize || 15);
     updateSourceVisibility();
     updateAllDropdowns();

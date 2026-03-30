@@ -40,15 +40,17 @@ function saveStyleFromEditor() {
     if (!currentEditingStyle) return;
     const name = jQuery('#ec_style_name').val().trim();
     const content = jQuery('#ec_style_content').val();
+    const type = jQuery('#ec_style_type').val() || 'chat stream';
     if (!name) { if (typeof toastr !== 'undefined') toastr.error('Style name cannot be empty'); return; }
     const isCustom = state.settings.custom_styles && state.settings.custom_styles[currentEditingStyle];
     if (isCustom) {
         state.settings.custom_styles[currentEditingStyle].name = name;
         state.settings.custom_styles[currentEditingStyle].prompt = content;
+        state.settings.custom_styles[currentEditingStyle].type = type;
     } else {
         const id = 'custom_' + currentEditingStyle + '_' + Date.now();
         if (!state.settings.custom_styles) state.settings.custom_styles = {};
-        state.settings.custom_styles[id] = { name: name + ' (Custom)', prompt: content };
+        state.settings.custom_styles[id] = { name: name + ' (Custom)', prompt: content, type: type };
         currentEditingStyle = id;
     }
     saveSettings();
@@ -128,7 +130,27 @@ export async function selectStyleInEditor(styleId) {
     const isCustom = state.settings.custom_styles && state.settings.custom_styles[styleId];
     const { name1, characterName, name2 } = window.SillyTavern.getContext();
     const safeStyleName = (styleObj ? styleObj.label : styleId).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    jQuery('#ec_style_main').html(`<div class="ec_style_name_row"><input type="text" class="ec_style_name_input" id="ec_style_name" value="${safeStyleName}" placeholder="Style Name" ${!isCustom ? 'readonly' : ''}>${!isCustom ? '<small style="opacity:0.6;">(Built-in styles cannot be renamed)</small>' : ''}</div><textarea class="ec_style_textarea" id="ec_style_content" placeholder="Enter the prompt..."></textarea><div style="font-size:0.75em; opacity:0.65; margin-top:6px; padding:6px 8px; background:rgba(0,0,0,0.15); border-radius:4px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span>Macros:</span><span><code>{{user}}</code> → ${name1||'User'}</span><span><code>{{char}}</code> → ${characterName||name2||'Character'}</span></div>`);
+    
+    const styleType = styleObj ? styleObj.type : 'chat stream';
+    const typeOptions = [
+        { val: 'chat stream', label: 'Chat Stream' },
+        { val: 'assistant', label: 'Assistant' }
+    ].map(t => `<option value="${t.val}"${styleType === t.val ? ' selected' : ''}>${t.label}</option>`).join('');
+
+    jQuery('#ec_style_main').html(`
+        <div class="ec_style_name_row">
+            <input type="text" class="ec_style_name_input" id="ec_style_name" value="${safeStyleName}" placeholder="Style Name" ${!isCustom ? 'readonly' : ''}>
+            <select id="ec_style_type" class="ec_style_type_select" ${!isCustom ? 'disabled' : ''}>
+                ${typeOptions}
+            </select>
+        </div>
+        <textarea class="ec_style_textarea" id="ec_style_content" placeholder="Enter the prompt..."></textarea>
+        <div style="font-size:0.75em; opacity:0.65; margin-top:6px; padding:6px 8px; background:rgba(0,0,0,0.15); border-radius:4px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span>Macros:</span>
+            <span><code>{{user}}</code> → ${name1||'User'}</span>
+            <span><code>{{char}}</code> → ${characterName||name2||'Character'}</span>
+        </div>
+    `);
     jQuery('#ec_style_content').val(prompt);
     jQuery('#ec_style_save, #ec_style_export').show();
     jQuery('#ec_style_delete').toggle(!!isCustom);
@@ -141,7 +163,8 @@ function createNewStyle() {
     if (!state.settings.custom_styles) state.settings.custom_styles = {};
     state.settings.custom_styles[id] = {
         name: name,
-        prompt: "Generate chat messages reacting to the context.\n\nformat:\nusername: message"
+        prompt: "Generate chat messages reacting to the context.\n\nformat:\nusername: message",
+        type: 'chat stream'
     };
     saveSettings();
     populateStyleList();

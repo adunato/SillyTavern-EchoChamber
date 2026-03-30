@@ -345,5 +345,15 @@ export function bindEventHandlers() {
         saveSettings();
     });
 
+    jQuery(document).on('input', '#discord_system_prompt_chat_stream', function () {
+        state.settings.systemPromptChatStream = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_system_prompt_assistant', function () {
+        state.settings.systemPromptAssistant = jQuery(this).val();
+        saveSettings();
+    });
+
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());
 }

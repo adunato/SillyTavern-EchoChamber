@@ -86,6 +86,24 @@
                             </div>
                         </div>
 
+                        <!-- System Prompts -->
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label">
+                                <i class="fa-solid fa-terminal"></i> System Prompt (Chat Stream)
+                            </label>
+                            <textarea id="discord_system_prompt_chat_stream" class="text_pole ec-s-textarea" rows="6" placeholder="System prompt for chat stream styles..."></textarea>
+                        </div>
+
+                        <div class="ec-s-field-group">
+                            <label class="ec-s-field-label">
+                                <i class="fa-solid fa-terminal"></i> System Prompt (Assistant)
+                            </label>
+                            <textarea id="discord_system_prompt_assistant" class="text_pole ec-s-textarea" rows="6" placeholder="System prompt for assistant styles..."></textarea>
+                        </div>
+                        <div class="ec-s-hint">
+                            Available variables: <code>{{lore}}</code>, <code>{{chat_history}}</code>, <code>{{streamer_reply}}</code>, <code>{{style_instructions}}</code>, <code>{{count_instruction}}</code>, <code>{{count_instruction_short}}</code>, <code>{{user}}</code>, <code>{{char}}</code>
+                        </div>
+
                     </div>
                 </div>
 
