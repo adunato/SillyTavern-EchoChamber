@@ -22,8 +22,40 @@ Currently, the system prompt in EchoChamber is hardcoded in the generator logic.
     {{lore}}
 
     <chat_history>
+    {{chat_history}}
+    </chat_history>
+
+    {{streamer_reply}}
+
+    <instructions>
+    {{count_instruction}}
+    {{style_instructions}}
+    </instructions>
+
+    <task>
+    Based on the chat history above, generate fake chat feed reactions. Remember to think about them step-by-step first. STRICTLY follow the format defined in the instruction. {{count_instruction_short}} Do NOT continue the story or roleplay as the characters. Do NOT output preamble. Just output the content directly.
+    </task>
     ```
--   Default `systemPromptAssistant`: (To be defined, likely more direct).
+-   Default `systemPromptAssistant`:
+    ```
+    <role>
+    You are a direct assistant to the user. Answer questions and provide information based on the context.
+    </role>
+
+    {{lore}}
+
+    <chat_history>
+    {{chat_history}}
+    </chat_history>
+
+    <instructions>
+    {{style_instructions}}
+    </instructions>
+
+    <task>
+    Provide a helpful response to the user's latest message.
+    </task>
+    ```
 
 ### UI Updates
 -   **Settings Panel**: Add two large textareas in the "Generation Engine" section for editing the two base prompts.
