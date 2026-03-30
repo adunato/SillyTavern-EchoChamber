@@ -253,6 +253,14 @@ export async function generateDiscordChat(showOverlay = false) {
     const styleType = styleObj ? styleObj.type : 'chat stream';
     const template = styleType === 'assistant' ? state.settings.systemPromptAssistant : state.settings.systemPromptChatStream;
 
+    const ecMessages = [];
+    jQuery('#discordContent .discord_message').slice(0, 10).each(function () {
+        const uname = jQuery(this).find('.discord_username').first().text().trim();
+        const content = jQuery(this).find('.discord_content').first().text().trim();
+        if (uname && content) ecMessages.push(`${uname}: ${content}`);
+    });
+    const ecHistory = ecMessages.reverse().join('\n');
+
     const finalPrompt = buildPromptFromTemplate(template, {
         lore: additionalSystemContext,
         chatHistory: chatHistoryString,
@@ -261,7 +269,8 @@ export async function generateDiscordChat(showOverlay = false) {
         countInstruction: countInstruction,
         countInstructionShort: countInstructionShort,
         userName: context.name1 || 'User',
-        charName: context.characterName || context.name2 || 'Character'
+        charName: context.characterName || context.name2 || 'Character',
+        ecHistory: ecHistory ? `<recent_echochamber_history>\n${ecHistory}\n</recent_echochamber_history>` : ''
     });
 
     log('Generated System Message:', finalPrompt);
