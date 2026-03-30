@@ -9,7 +9,11 @@ export function getAllStyles() {
     BUILT_IN_STYLES.forEach(s => { styleMap[s.val] = s; });
     if (state.settings.custom_styles) {
         Object.keys(state.settings.custom_styles).forEach(id => {
-            styleMap[id] = { val: id, label: state.settings.custom_styles[id].name };
+            styleMap[id] = { 
+                val: id, 
+                label: state.settings.custom_styles[id].name,
+                type: state.settings.custom_styles[id].type || 'chat stream'
+            };
         });
     }
 

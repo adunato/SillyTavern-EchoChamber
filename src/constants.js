@@ -19,12 +19,12 @@ export const STYLE_FILES = {
 };
 
 export const BUILT_IN_STYLES = [
-    { val: 'twitch', label: 'Discord / Twitch' }, { val: 'verbose', label: 'Thoughtful' },
-    { val: 'twitter', label: 'Twitter / X' }, { val: 'news', label: 'Breaking News' },
-    { val: 'mst3k', label: 'MST3K' }, { val: 'nsfw_ava', label: 'Ava NSFW' },
-    { val: 'nsfw_kai', label: 'Kai NSFW' }, { val: 'hypebot', label: 'HypeBot' },
-    { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'darkroast', label: 'Dark Roast' },
-    { val: 'dumbanddumber', label: 'Dumb and Dumber' }, { val: 'ao3wattpad', label: 'AO3 / Wattpad' }
+    { val: 'twitch', label: 'Discord / Twitch', type: 'chat stream' }, { val: 'verbose', label: 'Thoughtful', type: 'chat stream' },
+    { val: 'twitter', label: 'Twitter / X', type: 'chat stream' }, { val: 'news', label: 'Breaking News', type: 'chat stream' },
+    { val: 'mst3k', label: 'MST3K', type: 'chat stream' }, { val: 'nsfw_ava', label: 'Ava NSFW', type: 'chat stream' },
+    { val: 'nsfw_kai', label: 'Kai NSFW', type: 'chat stream' }, { val: 'hypebot', label: 'HypeBot', type: 'chat stream' },
+    { val: 'doomscrollers', label: 'Doomscrollers', type: 'chat stream' }, { val: 'darkroast', label: 'Dark Roast', type: 'chat stream' },
+    { val: 'dumbanddumber', label: 'Dumb and Dumber', type: 'chat stream' }, { val: 'ao3wattpad', label: 'AO3 / Wattpad', type: 'chat stream' }
 ];
 
 export const defaultSettings = {
@@ -72,6 +72,8 @@ export const defaultSettings = {
     floatTop: null,
     floatWidth: null,
     floatHeight: null,
+    systemPromptChatStream: `<role>\nYou are an excellent creator of fake chat feeds that react dynamically to the user's conversation context.\n</role>\n\n{{lore}}\n\n<chat_history>\n{{chat_history}}\n</chat_history>\n\n{{streamer_reply}}\n\n<instructions>\n{{count_instruction}}\n{{style_instructions}}\n</instructions>\n\n<task>\nBased on the chat history above, generate fake chat feed reactions. Remember to think about them step-by-step first. STRICTLY follow the format defined in the instruction. {{count_instruction_short}} Do NOT continue the story or roleplay as the characters. Do NOT output preamble. Just output the content directly.\n</task>`,
+    systemPromptAssistant: `<role>\nYou are a direct assistant to the user. Answer questions and provide information based on the context.\n</role>\n\n{{lore}}\n\n<chat_history>\n{{chat_history}}\n</chat_history>\n\n<task>\nProvide a helpful response to the user's latest message.\n</task>`
 };
 
 export const state = {

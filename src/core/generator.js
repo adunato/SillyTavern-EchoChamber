@@ -2,11 +2,34 @@ import { state, MODULE_NAME } from '../constants.js';
 import { log, warn, error } from '../utils/logger.js';
 import { cleanMessage, getActiveCharacters, resolveSTMacro, formatMessage } from '../utils/helpers.js';
 import { getChatMetadata, saveChatMetadata, startLivestream, pauseLivestream, resumeLivestream, stopLivestream, parseLivestreamMessages } from '../state/chatState.js';
-import { loadChatStyle } from './styles.js';
+import { loadChatStyle, getAllStyles } from './styles.js';
 import { extractTextFromResponse } from './api.js';
 import { setStatus, setDiscordText, updateReplyButtonState, updateLiveIndicator } from '../ui/panel.js';
 
 let isReplying = false;
+
+/**
+ * Builds a prompt from a template by replacing placeholders with actual content.
+ */
+function buildPromptFromTemplate(template, data) {
+    let prompt = template;
+    const replacements = {
+        '{{lore}}': data.lore || '',
+        '{{chat_history}}': data.chatHistory || '',
+        '{{streamer_reply}}': data.streamerReply || '',
+        '{{style_instructions}}': data.styleInstructions || '',
+        '{{count_instruction}}': data.countInstruction || '',
+        '{{count_instruction_short}}': data.countInstructionShort || '',
+        '{{user}}': data.userName || 'User',
+        '{{char}}': data.charName || 'Character',
+        '{{recent_echochamber_history}}': data.ecHistory || ''
+    };
+
+    for (const [placeholder, value] of Object.entries(replacements)) {
+        prompt = prompt.replace(new RegExp(placeholder, 'g'), value);
+    }
+    return prompt;
+}
 
 /**
  * Cancels any in-progress generation
@@ -185,53 +208,66 @@ export async function generateDiscordChat(showOverlay = false) {
         } catch (e) { log('Error getting world info:', e); }
     }
 
-    const additionalSystemContext = systemContextParts.length > 0 ? '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
-    const systemMessage = `<role>\nYou are an excellent creator of fake chat feeds that react dynamically to the user's conversation context.\n</role>${additionalSystemContext}\n\n<chat_history>`;
-
-    log('Generated System Message:', systemMessage);
+    const additionalSystemContext = systemContextParts.length > 0 ? '<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
 
     let countInstruction = '';
+    let countInstructionShort = '';
     if (isNarratorStyle && state.settings.livestream && !showOverlay) {
         countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} messages. Not fewer, not more - exactly ${messageCount} messages from the same narrator/character.\n\n`;
+        countInstructionShort = `Output exactly ${messageCount} messages.`;
     } else if (!isNarratorStyle) {
         if (state.settings.livestream && !showOverlay) {
             countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} chat messages from EXACTLY ${actualUserCount} different users. Each user can post multiple messages. Not fewer, not more - exactly ${messageCount} messages from ${actualUserCount} users.\n\n`;
+            countInstructionShort = `Output exactly ${messageCount} messages from ${actualUserCount} users.`;
         } else {
             countInstruction = `IMPORTANT: You MUST generate EXACTLY ${userCount} chat messages. Not fewer, not more - exactly ${userCount}.\n\n`;
+            countInstructionShort = `Output exactly ${userCount} messages.`;
         }
     }
 
-    const chatHistoryMessages = [];
+    const chatHistoryRaw = [];
     if (state.settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
         for (const msg of historyMessages) {
             const msgIndex = chat.indexOf(msg);
-            const role = msg.is_user ? 'user' : 'assistant';
             let content = cleanMessage(msg.mes);
             if (messageCommentaries[msgIndex]) {
                 content += `\n\n[Previous EchoChamber commentary: ${messageCommentaries[msgIndex]}]`;
             }
-            chatHistoryMessages.push({ role, content });
+            chatHistoryRaw.push(`${msg.name}: ${content}`);
         }
     } else {
         for (const msg of historyMessages) {
-            const role = msg.is_user ? 'user' : 'assistant';
-            const content = cleanMessage(msg.mes);
-            chatHistoryMessages.push({ role, content });
+            chatHistoryRaw.push(`${msg.name}: ${cleanMessage(msg.mes)}`);
         }
     }
+    const chatHistoryString = chatHistoryRaw.join('\n');
 
     let userReplyContext = "";
     if (window.lastEchoReply) {
-        userReplyContext = `\n\n<streamer_reply>\nIMPORTANT: The streamer (the user who controls this character) has just directly replied to the chat: "${window.lastEchoReply}". The chat reactions you generate MUST acknowledge and react to this reply. Some chatters should respond directly to the streamer's message.\n</streamer_reply>`;
+        userReplyContext = `<streamer_reply>\nIMPORTANT: The streamer (the user who controls this character) has just directly replied to the chat: "${window.lastEchoReply}". The chat reactions you generate MUST acknowledge and react to this reply. Some chatters should respond directly to the streamer's message.\n</streamer_reply>`;
         window.lastEchoReply = null;
     }
 
-    const instructionsPrompt = `</chat_history>${userReplyContext}\n\n<instructions>\n${countInstruction}${stylePrompt}\n</instructions>\n\n<task>\nBased on the chat history above, generate fake chat feed reactions. Remember to think about them step-by-step first. STRICTLY follow the format defined in the instruction. ${isNarratorStyle && state.settings.livestream && !showOverlay ? `Output exactly ${messageCount} messages.` : isNarratorStyle ? '' : state.settings.livestream && !showOverlay ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. Do NOT output preamble. Just output the content directly.\n</task>`;
+    const styles = getAllStyles();
+    const styleObj = styles.find(s => s.val === state.settings.style);
+    const styleType = styleObj ? styleObj.type : 'chat stream';
+    const template = styleType === 'assistant' ? state.settings.systemPromptAssistant : state.settings.systemPromptChatStream;
+
+    const finalPrompt = buildPromptFromTemplate(template, {
+        lore: additionalSystemContext,
+        chatHistory: chatHistoryString,
+        streamerReply: userReplyContext,
+        styleInstructions: stylePrompt,
+        countInstruction: countInstruction,
+        countInstructionShort: countInstructionShort,
+        userName: context.name1 || 'User',
+        charName: context.characterName || context.name2 || 'Character'
+    });
+
+    log('Generated System Message:', finalPrompt);
 
     const messages = [
-        { role: 'system', content: systemMessage },
-        ...chatHistoryMessages,
-        { role: 'user', content: instructionsPrompt }
+        { role: 'system', content: finalPrompt }
     ];
 
     const calculatedMaxTokens = Math.max(2048, userCount * 200 + 1024);
@@ -432,23 +468,33 @@ export async function generateSingleReply(replyText, targetUsername) {
         } catch (e) { log('Error getting world info:', e); }
     }
 
-    const additionalSystemContext = systemContextParts.length > 0 ? '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
+    const additionalSystemContext = systemContextParts.length > 0 ? '<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>' : '';
 
-    const systemMessage = `<role>\nYou are an excellent creator of fake chat feed reactions.\n</role>${additionalSystemContext}\n\n<chat_history>`;
-    
+    const styles = getAllStyles();
+    const styleObj = styles.find(s => s.val === state.settings.style);
+    const styleType = styleObj ? styleObj.type : 'chat stream';
+    const template = styleType === 'assistant' ? state.settings.systemPromptAssistant : state.settings.systemPromptChatStream;
+
     let targetInstruction = targetUsername ? `IMPORTANT: You MUST generate a direct reply from the user "${targetUsername}" back to the streamer.` : `IMPORTANT: You MUST generate EXACTLY ${replyCount} chat messages reacting to the streamer.`;
-    
-    const instructionsPrompt = `</chat_history>\n\n<streamer_reply>\nStreamer: "${replyText}"\n</streamer_reply>\n\n<recent_echochamber_history>\n${ecHistory}\n</recent_echochamber_history>\n\n<instructions>\n${targetInstruction}\n${stylePrompt}\n</instructions>\n\n<task>\nGenerate fake chat reactions to the streamer's message. Output ONLY the chat feed. No preamble.\n</task>`;
+    const streamerReply = `<streamer_reply>\nStreamer: "${replyText}"\n</streamer_reply>`;
+    const chatHistoryRaw = historyMessages.map(msg => `${msg.name}: ${cleanMessage(msg.mes)}`).join('\n');
 
-    const chatHistoryMessages = historyMessages.map(msg => ({
-        role: msg.is_user ? 'user' : 'assistant',
-        content: cleanMessage(msg.mes)
-    }));
+    const finalPrompt = buildPromptFromTemplate(template, {
+        lore: additionalSystemContext,
+        chatHistory: chatHistoryRaw,
+        streamerReply: streamerReply,
+        styleInstructions: stylePrompt,
+        countInstruction: targetInstruction,
+        countInstructionShort: targetInstruction,
+        userName: context.name1 || 'User',
+        charName: context.characterName || context.name2 || 'Character',
+        ecHistory: ecHistory ? `<recent_echochamber_history>\n${ecHistory}\n</recent_echochamber_history>` : ''
+    });
+
+    log('Generated System Message (Single Reply):', finalPrompt);
 
     const messages = [
-        { role: 'system', content: systemMessage },
-        ...chatHistoryMessages,
-        { role: 'user', content: instructionsPrompt }
+        { role: 'system', content: finalPrompt }
     ];
 
     try {
