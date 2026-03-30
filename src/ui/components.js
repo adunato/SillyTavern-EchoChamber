@@ -155,5 +155,195 @@ export function bindEventHandlers() {
         this.value = '';
     });
 
+    jQuery(document).on('change', '#discord_enabled', function () {
+        state.settings.enabled = jQuery(this).prop('checked');
+        updateApplyLayout();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_source', function () {
+        state.settings.source = jQuery(this).val();
+        updateSourceVisibility();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_url', function () {
+        state.settings.url = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_model_select', function () {
+        state.settings.model = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_openai_preset', function () {
+        state.settings.openai_preset = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_openai_url', function () {
+        state.settings.openai_url = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_openai_key', function () {
+        state.settings.openai_key = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_openai_model', function () {
+        state.settings.openai_model = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_preset_select', function () {
+        state.settings.preset = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_style', function () {
+        state.settings.style = jQuery(this).val();
+        updateStyleIndicator();
+        updateFloatStyleLabel();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_position', function () {
+        state.settings.position = jQuery(this).val();
+        updateApplyLayout();
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_user_count', function () {
+        state.settings.userCount = parseInt(jQuery(this).val()) || 5;
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_font_size', function () {
+        state.settings.fontSize = parseInt(jQuery(this).val()) || 15;
+        applyFontSize(state.settings.fontSize);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_opacity', function () {
+        const val = parseInt(jQuery(this).val());
+        state.settings.opacity = val;
+        jQuery('#discord_opacity_val').text(val + '%');
+        updateApplyLayout();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_auto_update', function () {
+        state.settings.autoUpdateOnMessages = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_user', function () {
+        state.settings.includeUserInput = jQuery(this).prop('checked');
+        jQuery('#discord_context_depth_container').toggle(state.settings.includeUserInput);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_context_depth', function () {
+        state.settings.contextDepth = parseInt(jQuery(this).val()) || 4;
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_past_echo', function () {
+        state.settings.includePastEchoChambers = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_persona', function () {
+        state.settings.includePersona = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_authors_note', function () {
+        state.settings.includeAuthorsNote = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_character_description', function () {
+        state.settings.includeCharacterDescription = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_summary', function () {
+        state.settings.includeSummary = jQuery(this).prop('checked');
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_include_world_info', function () {
+        state.settings.includeWorldInfo = jQuery(this).prop('checked');
+        jQuery('#discord_wi_budget_container').toggle(state.settings.includeWorldInfo);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_wi_budget', function () {
+        state.settings.wiBudget = parseInt(jQuery(this).val()) || 0;
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_livestream', function () {
+        state.settings.livestream = jQuery(this).prop('checked');
+        jQuery('#discord_livestream_settings').toggle(state.settings.livestream);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_livestream_batch_size', function () {
+        state.settings.livestreamBatchSize = parseInt(jQuery(this).val()) || 20;
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_livestream_min_wait', function () {
+        state.settings.livestreamMinWait = parseInt(jQuery(this).val()) || 5;
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_livestream_max_wait', function () {
+        state.settings.livestreamMaxWait = parseInt(jQuery(this).val()) || 60;
+        saveSettings();
+    });
+
+    jQuery(document).on('change', 'input[name="discord_livestream_mode"]', function () {
+        state.settings.livestreamMode = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_chat_enabled', function () {
+        state.settings.chatEnabled = jQuery(this).prop('checked');
+        jQuery('.ec_reply_container').toggle(state.settings.chatEnabled);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_chat_username', function () {
+        state.settings.chatUsername = jQuery(this).val();
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_chat_avatar_color', function () {
+        state.settings.chatAvatarColor = jQuery(this).val();
+        applyAvatarColor(state.settings.chatAvatarColor);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_chat_reply_count', function () {
+        state.settings.chatReplyCount = parseInt(jQuery(this).val()) || 3;
+        saveSettings();
+    });
+
+    jQuery(document).on('change', '#discord_chat_override_tokens', function () {
+        state.settings.chatOverrideTokens = jQuery(this).prop('checked');
+        jQuery('#discord_chat_max_tokens_container').toggle(state.settings.chatOverrideTokens);
+        saveSettings();
+    });
+
+    jQuery(document).on('input', '#discord_chat_max_tokens', function () {
+        state.settings.chatMaxTokens = parseInt(jQuery(this).val()) || 3000;
+        saveSettings();
+    });
+
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());
 }

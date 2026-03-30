@@ -357,6 +357,13 @@ export function openSettingsModal() {
         modal.find('#ecm_openai_settings').toggle(val === 'openai');
         modal.find('#ecm_profile_settings').toggle(val === 'profile');
     });
+    modal.on('input', '#ecm_url', function () { syncToPanel('discord_url', jQuery(this).val()); });
+    modal.on('change', '#ecm_model_select', function () { syncToPanel('discord_model_select', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_url', function () { syncToPanel('discord_openai_url', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_key', function () { syncToPanel('discord_openai_key', jQuery(this).val()); });
+    modal.on('input', '#ecm_openai_model', function () { syncToPanel('discord_openai_model', jQuery(this).val()); });
+    modal.on('change', '#ecm_preset_select', function () { syncToPanel('discord_preset_select', jQuery(this).val()); });
+
     modal.on('change', '#ecm_style', function () {
         const val = jQuery(this).val();
         state.settings.style = val;
@@ -377,4 +384,32 @@ export function openSettingsModal() {
         modal.find('#ecm_opacity_val').text(val + '%');
         syncToPanel('discord_opacity', val);
     });
+
+    modal.on('change', '#ecm_auto_update', function () { syncToPanel('discord_auto_update', this.checked, true); });
+    modal.on('change', '#ecm_include_user', function () { syncToPanel('discord_include_user', this.checked, true); });
+    modal.on('input', '#ecm_context_depth', function () { syncToPanel('discord_context_depth', jQuery(this).val()); });
+    modal.on('change', '#ecm_include_past_echo', function () { syncToPanel('discord_include_past_echo', this.checked, true); });
+    modal.on('change', '#ecm_include_persona', function () { syncToPanel('discord_include_persona', this.checked, true); });
+    modal.on('change', '#ecm_include_authors_note', function () { syncToPanel('discord_include_authors_note', this.checked, true); });
+    modal.on('change', '#ecm_include_character_description', function () { syncToPanel('discord_include_character_description', this.checked, true); });
+    modal.on('change', '#ecm_include_summary', function () { syncToPanel('discord_include_summary', this.checked, true); });
+    modal.on('change', '#ecm_include_world_info', function () { syncToPanel('discord_include_world_info', this.checked, true); });
+    modal.on('input', '#ecm_wi_budget', function () { syncToPanel('discord_wi_budget', jQuery(this).val()); });
+
+    modal.on('change', '#ecm_livestream', function () { syncToPanel('discord_livestream', this.checked, true); });
+    modal.on('input', '#ecm_livestream_batch_size', function () { syncToPanel('discord_livestream_batch_size', jQuery(this).val()); });
+    modal.on('input', '#ecm_livestream_min_wait', function () { syncToPanel('discord_livestream_min_wait', jQuery(this).val()); });
+    modal.on('input', '#ecm_livestream_max_wait', function () { syncToPanel('discord_livestream_max_wait', jQuery(this).val()); });
+    modal.on('change', 'input[name="ecm_livestream_mode"]', function () {
+        const val = jQuery(this).val();
+        syncToPanel(`discord_livestream_${val}`, true, true);
+    });
+
+    modal.on('change', '#ecm_chat_enabled', function () { syncToPanel('discord_chat_enabled', this.checked, true); });
+    modal.on('input', '#ecm_chat_username', function () { syncToPanel('discord_chat_username', jQuery(this).val()); });
+    modal.on('change', '#ecm_chat_avatar_color', function () { syncToPanel('discord_chat_avatar_color', jQuery(this).val()); });
+    modal.on('input', '#ecm_chat_reply_count', function () { syncToPanel('discord_chat_reply_count', jQuery(this).val()); });
+
+    modal.on('change', '#ecm_chat_override_tokens', function () { syncToPanel('discord_chat_override_tokens', this.checked, true); });
+    modal.on('input', '#ecm_chat_max_tokens', function () { syncToPanel('discord_chat_max_tokens', jQuery(this).val()); });
 }
