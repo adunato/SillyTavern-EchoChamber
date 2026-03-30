@@ -6,7 +6,7 @@ import { getChatMetadata, stopLivestream } from './src/state/chatState.js';
 import { generateDiscordChat } from './src/core/generator.js';
 import { renderPanel, setDiscordText, setStatus, initResizeLogic } from './src/ui/panel.js';
 import { bindEventHandlers, populateConnectionProfiles } from './src/ui/components.js';
-import { updatePopoutVisibility, initEcSettingsAccordions } from './src/ui/settings.js';
+import { updatePopoutVisibility, initEcSettingsAccordions, updateSummaryLabels } from './src/ui/settings.js';
 
 async function init() {
     log('Initializing modular EchoChamber...');
@@ -37,6 +37,7 @@ async function init() {
             jQuery('#extensions_settings').append(settingsHtml);
             log('Settings template loaded');
             initEcSettingsAccordions();
+            updateSummaryLabels();
         }
     } catch (err) {
         error('Failed to load settings template:', err);

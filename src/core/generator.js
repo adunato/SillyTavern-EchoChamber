@@ -153,11 +153,19 @@ export async function generateDiscordChat(showOverlay = false) {
     }
     if (state.settings.includeSummary) {
         try {
-            const memorySettings = context.extensionSettings?.memory;
-            if (memorySettings) {
-                const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
-                if (chatWithSummary?.extra?.memory) {
-                    systemContextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+            if (typeof window.SceneSummariser !== 'undefined' && typeof window.SceneSummariser.getCurrentSummary === 'function') {
+                const summary = window.SceneSummariser.getCurrentSummary();
+                if (summary) {
+                    systemContextParts.push(`<summary>\n${summary}\n</summary>`);
+                    log('Added summary from Scene Summariser API');
+                }
+            } else {
+                const memorySettings = context.extensionSettings?.memory;
+                if (memorySettings) {
+                    const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
+                    if (chatWithSummary?.extra?.memory) {
+                        systemContextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+                    }
                 }
             }
         } catch (e) { log('Could not get summary:', e); }

@@ -98,6 +98,27 @@ function syncToPanel(panelId, value, isProp = false) {
     }
 }
 
+export function updateSummaryLabels() {
+    if (typeof window.SceneSummariser !== 'undefined') {
+        const searchText = "Summary (from Summarize ext.)";
+        const newText = "Summary (from Scene Summarizer ext.)";
+
+        // Update main settings panel
+        jQuery('.ec-s-panel .ec-s-label-text').each(function() {
+            if (jQuery(this).text().trim() === searchText) {
+                jQuery(this).html(jQuery(this).html().replace(searchText, newText));
+            }
+        });
+
+        // Update settings modal
+        jQuery('#ec_settings_modal .ecm_label').each(function() {
+             if (jQuery(this).text().trim() === searchText) {
+                jQuery(this).html(jQuery(this).html().replace(searchText, newText));
+            }
+        });
+    }
+}
+
 export function syncModalFromSettings() {
     const m = jQuery('#ec_settings_modal');
     if (!m.length) return;
@@ -141,6 +162,7 @@ export function syncModalFromSettings() {
     m.find('#ecm_chat_avatar_color').val(s.chatAvatarColor || '#3b82f6');
     m.find('#ecm_chat_reply_count').val(s.chatReplyCount || 3);
     updateSourceVisibility();
+    updateSummaryLabels();
 }
 
 export function initEcSettingsAccordions() {
@@ -170,7 +192,7 @@ export function openSettingsModal() {
     const s = state.settings;
     const styles = getAllStyles();
     const styleOptions = styles.map(st => `<option value="${st.val}"${s.style === st.val ? ' selected' : ''}>${st.label}</option>`).join('');
-    
+
     const ollamaVisible = s.source === 'ollama' ? '' : 'display:none;';
     const openaiVisible = s.source === 'openai' ? '' : 'display:none;';
     const profileVisible = s.source === 'profile' ? '' : 'display:none;';
@@ -227,6 +249,9 @@ export function openSettingsModal() {
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Include History</span><input id="ecm_include_user" type="checkbox" class="ecm_toggle"${s.includeUserInput?' checked':''}></label>
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Persona</span><input id="ecm_include_persona" type="checkbox" class="ecm_toggle"${s.includePersona?' checked':''}></label>
             <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Author's Note</span><input id="ecm_include_authors_note" type="checkbox" class="ecm_toggle"${s.includeAuthorsNote?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Character Description</span><input id="ecm_include_character_description" type="checkbox" class="ecm_toggle"${s.includeCharacterDescription?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">Summary (from Summarize ext.)</span><input id="ecm_include_summary" type="checkbox" class="ecm_toggle"${s.includeSummary?' checked':''}></label>
+            <label class="ecm_row ecm_toggle_row"><span class="ecm_label">World Info</span><input id="ecm_include_world_info" type="checkbox" class="ecm_toggle"${s.includeWorldInfo?' checked':''}></label>
           </div>
         </section>
         <section class="ecm_section ecm_acc" id="ecm-sect-livestream">
@@ -258,7 +283,7 @@ export function openSettingsModal() {
 
     jQuery('body').append(modal);
     populateOllamaModels('#ecm_model_select');
-    
+    updateSummaryLabels();    
     const existingProfiles = jQuery('#discord_preset_select option');
     existingProfiles.each(function () {
         const opt = jQuery(this).clone();
