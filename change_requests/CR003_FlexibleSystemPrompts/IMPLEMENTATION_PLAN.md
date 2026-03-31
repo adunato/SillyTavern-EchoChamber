@@ -10,11 +10,14 @@ Modify `src/constants.js`:
 -   Update `BUILT_IN_STYLES` to include `type: 'chat stream'`.
 -   Add `systemPromptChatStream` and `systemPromptAssistant` to `defaultSettings`.
 
-### Step 2: Refactor Generator Prompt Building
+### Step 2: Refactor Generator Prompt Building and Parsing
 Modify `src/core/generator.js`:
 -   In `generateDiscordChat` and `generateSingleReply`, identify the style's type.
--   Replace the hardcoded `systemMessage` with a version built from settings.
--   Implement variable replacement for `{{lore}}` and `{{style_instructions}}`.
+-   Replace the hardcoded `systemMessage` with a version built from settings using `buildPromptFromTemplate`.
+-   Implement variable replacement for all supported macros.
+-   Update output parsing logic:
+    -   For `'chat stream'` styles: Maintain line-by-line message splitting.
+    -   For `'assistant'` styles: Treat the entire LLM output as a single message from the character.
 
 ### Step 3: Update Settings UI
 Modify `settings.html`:

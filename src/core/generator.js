@@ -338,18 +338,23 @@ export async function generateDiscordChat(showOverlay = false) {
 
         let cleanResult = result.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').replace(/<\/?discordchat>/gi, '').trim();
         const parsedMessages = [];
-        cleanResult.split('\n').forEach(line => {
-            const trimmed = line.trim();
-            if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
-            const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
-            if (match) {
-                parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
-            } else if (parsedMessages.length > 0) {
-                parsedMessages[parsedMessages.length - 1].content += ' ' + trimmed;
-            } else {
-                parsedMessages.push({ name: 'User', content: trimmed });
-            }
-        });
+
+        if (styleType === 'assistant') {
+            parsedMessages.push({ name: context.characterName || context.name2 || 'Assistant', content: cleanResult });
+        } else {
+            cleanResult.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
+                const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
+                if (match) {
+                    parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
+                } else if (parsedMessages.length > 0) {
+                    parsedMessages[parsedMessages.length - 1].content += '\n' + trimmed;
+                } else {
+                    parsedMessages.push({ name: 'User', content: trimmed });
+                }
+            });
+        }
 
         let htmlBuffer = '<div class="discord_container" style="padding-top: 10px;">';
         let displayedCount = 0;
@@ -581,18 +586,23 @@ export async function generateSingleReply(replyText, targetUsername) {
 
         let cleanResult = result.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').replace(/<\/?discordchat>/gi, '').trim();
         const parsedMessages = [];
-        cleanResult.split('\n').forEach(line => {
-            const trimmed = line.trim();
-            if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
-            const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
-            if (match) {
-                parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
-            } else if (parsedMessages.length > 0) {
-                parsedMessages[parsedMessages.length - 1].content += ' ' + trimmed;
-            } else {
-                parsedMessages.push({ name: 'User', content: trimmed });
-            }
-        });
+
+        if (styleType === 'assistant') {
+            parsedMessages.push({ name: context.characterName || context.name2 || 'Assistant', content: cleanResult });
+        } else {
+            cleanResult.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
+                const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
+                if (match) {
+                    parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
+                } else if (parsedMessages.length > 0) {
+                    parsedMessages[parsedMessages.length - 1].content += '\n' + trimmed;
+                } else {
+                    parsedMessages.push({ name: 'User', content: trimmed });
+                }
+            });
+        }
 
         const container = jQuery('#discordContent .discord_container');
         parsedMessages.forEach(msg => {
