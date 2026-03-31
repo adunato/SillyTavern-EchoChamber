@@ -338,18 +338,23 @@ export async function generateDiscordChat(showOverlay = false) {
 
         let cleanResult = result.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').replace(/<\/?discordchat>/gi, '').trim();
         const parsedMessages = [];
-        cleanResult.split('\n').forEach(line => {
-            const trimmed = line.trim();
-            if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
-            const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
-            if (match) {
-                parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
-            } else if (parsedMessages.length > 0) {
-                parsedMessages[parsedMessages.length - 1].content += ' ' + trimmed;
-            } else {
-                parsedMessages.push({ name: 'User', content: trimmed });
-            }
-        });
+
+        if (styleType === 'assistant') {
+            parsedMessages.push({ name: context.characterName || context.name2 || 'Assistant', content: cleanResult });
+        } else {
+            cleanResult.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
+                const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
+                if (match) {
+                    parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
+                } else if (parsedMessages.length > 0) {
+                    parsedMessages[parsedMessages.length - 1].content += '\n' + trimmed;
+                } else {
+                    parsedMessages.push({ name: 'User', content: trimmed });
+                }
+            });
+        }
 
         let htmlBuffer = '<div class="discord_container" style="padding-top: 10px;">';
         let displayedCount = 0;
@@ -506,12 +511,23 @@ export async function generateSingleReply(replyText, targetUsername) {
         { role: 'system', content: finalPrompt },
         { role: 'user', content: 'Generate reply now.' }
     ];
+    
+    log('Messages array for API:', JSON.stringify(messages, null, 2));
 
     state.abortController = new AbortController();
+    state.isGenerating = true;
+    updateReplyButtonState(true);
+    setStatus(`
+        <span><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</span>
+        <div class="ec_status_btn" id="ec_cancel_btn" title="Cancel Generation">
+             <i class="fa-solid fa-ban"></i> Cancel
+        </div>
+    `);
 
     try {
         let result = '';
         const source = state.settings.source || 'default';
+        log(`Using source: ${source}`);
 
         if (source === 'profile' && state.settings.preset) {
             const cm = context.extensionSettings?.connectionManager;
@@ -558,32 +574,54 @@ export async function generateSingleReply(replyText, targetUsername) {
             result = extractTextFromResponse(data);
         } else {
             if (context.generateRaw) {
+                log('Calling context.generateRaw with messages array...');
                 result = await context.generateRaw({ prompt: messages, quietToLoud: false });
             }
         }
 
+        log(`Raw API result length: ${result?.length || 0}`);
+        log(`Raw API result: "${result}"`);
+
         if (state.abortController.signal.aborted) throw new Error('Generation aborted');
 
         let cleanResult = result.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').replace(/<\/?discordchat>/gi, '').trim();
+        const parsedMessages = [];
+
+        if (styleType === 'assistant') {
+            parsedMessages.push({ name: context.characterName || context.name2 || 'Assistant', content: cleanResult });
+        } else {
+            cleanResult.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (!trimmed || /^[\.\…\-\_]+$/.test(trimmed)) return;
+                const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
+                if (match) {
+                    parsedMessages.push({ name: match[1].trim().replace(/[\*_\"`]/g, '').substring(0, 40), content: match[2].trim() });
+                } else if (parsedMessages.length > 0) {
+                    parsedMessages[parsedMessages.length - 1].content += '\n' + trimmed;
+                } else {
+                    parsedMessages.push({ name: 'User', content: trimmed });
+                }
+            });
+        }
+
         const container = jQuery('#discordContent .discord_container');
-        
-        cleanResult.split('\n').forEach(line => {
-            const trimmed = line.trim();
-            if (!trimmed) return;
-            const match = trimmed.match(/^(?:[\d\.\-\*]*\s*)?(.+?):\s*(.+)$/);
-            if (match) {
-                const html = formatMessage(match[1].trim().replace(/[\*_\"`]/g, ''), match[2].trim());
-                if (container.length) container.prepend(html);
-            }
+        parsedMessages.forEach(msg => {
+            if (msg.content.trim().length < 2) return;
+            const html = formatMessage(msg.name, msg.content.trim());
+            if (container.length) container.prepend(html);
         });
 
         const meta = getChatMetadata() || {};
         meta.generatedHtml = jQuery('#discordContent').html();
         saveChatMetadata(meta);
+        setStatus('');
 
     } catch (err) {
-        error('Reply generation error:', err);
+        if (err.name !== 'AbortError') error('Reply generation error:', err);
+        setStatus('');
     } finally {
+        state.isGenerating = false;
+        updateReplyButtonState(false);
         isReplying = false;
         if (wasLivestreaming) resumeLivestream();
     }

@@ -28,7 +28,7 @@ export const cleanMessage = (text) => {
 /**
  * Shows a custom glassmorphism confirmation modal.
  */
-export function showConfirmModal(message) {
+export function showConfirmModal(message, okCallback, confirmButtonLabel = 'OK') {
     return new Promise((resolve) => {
         jQuery('#ec_confirm_modal').remove();
         const modalHtml = `
@@ -38,7 +38,7 @@ export function showConfirmModal(message) {
                 <div class="ec_confirm_modal_message">${message}</div>
                 <div class="ec_confirm_modal_actions">
                     <button class="ec_confirm_modal_btn ec_confirm_cancel" id="ec_confirm_cancel">Cancel</button>
-                    <button class="ec_confirm_modal_btn ec_confirm_ok" id="ec_confirm_ok">Clear</button>
+                    <button class="ec_confirm_modal_btn ec_confirm_ok" id="ec_confirm_ok">${confirmButtonLabel}</button>
                 </div>
             </div>
         </div>`;
@@ -46,8 +46,11 @@ export function showConfirmModal(message) {
         requestAnimationFrame(() => jQuery('#ec_confirm_modal').addClass('ec_confirm_visible'));
         const cleanup = (result) => {
             jQuery('#ec_confirm_modal').removeClass('ec_confirm_visible');
-            setTimeout(() => jQuery('#ec_confirm_modal').remove(), 200);
-            resolve(result);
+            setTimeout(() => {
+                jQuery('#ec_confirm_modal').remove();
+                if (result && typeof okCallback === 'function') okCallback();
+                resolve(result);
+            }, 200);
         };
         jQuery('#ec_confirm_ok').on('click', () => cleanup(true));
         jQuery('#ec_confirm_cancel').on('click', () => cleanup(false));

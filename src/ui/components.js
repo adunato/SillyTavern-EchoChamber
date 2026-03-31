@@ -34,7 +34,11 @@ export function populateConnectionProfiles() {
 }
 
 export function bindEventHandlers() {
-    if (state.eventsBound) return;
+    log('Binding event handlers...');
+    if (state.eventsBound) {
+        log('Event handlers already bound, skipping.');
+        return;
+    }
     state.eventsBound = true;
 
     jQuery(document).on('click', '.discord_username', function () {
@@ -53,17 +57,28 @@ export function bindEventHandlers() {
     });
 
     const submitReply = async (isFloat = false) => {
-        if (state.isGenerating) { cancelGenerationContext(); return; }
-        if (!state.settings.chatEnabled) return;
+        log(`submitReply called (isFloat: ${isFloat})`);
+        if (state.isGenerating) {
+            log('Already generating, calling cancel...');
+            cancelGenerationContext();
+            return;
+        }
+        if (!state.settings.chatEnabled) {
+            log('Chat is disabled in settings, ignoring.');
+            return;
+        }
         const input = jQuery(isFloat ? '#ec_float_reply_field' : '#ec_reply_field');
         const text = input.val().trim();
+        log(`Input text: "${text}"`);
         if (!text) return;
         input.val('');
+        log('Prepending message to UI...');
         const myMsg = formatMessage(state.settings.chatUsername || 'Streamer (You)', text, true);
         const container = jQuery(isFloat ? '#ec_float_content .discord_container' : '#discordContent .discord_container');
         if (container.length) container.prepend(myMsg);
         else jQuery(isFloat ? '#ec_float_content' : '#discordContent').html(`<div class="discord_container">${myMsg}</div>`);
         const atMatch = text.match(/^@([^\s]+)/);
+        log(`Calling generateSingleReply (target: ${atMatch ? atMatch[1] : 'none'})...`);
         await generateSingleReply(text, atMatch ? atMatch[1] : null);
     };
 
@@ -88,7 +103,10 @@ export function bindEventHandlers() {
         if (btn.hasClass('ec_float_refresh') || btn.find('.fa-rotate-right').length) {
             generateDiscordChat(true);
         } else if (btn.hasClass('ec_float_clear') || btn.find('.fa-trash-can').length) {
-            showConfirmModal('Clear chat?').then(c => { if (c) { setDiscordText(''); clearCachedCommentary(); } });
+            showConfirmModal('Clear chat?', () => {
+                setDiscordText('');
+                clearCachedCommentary();
+            }, 'Clear');
         } else if (btn.hasClass('ec_float_settings') || btn.find('.fa-gear').length) {
             openSettingsModal();
         } else if (btn.hasClass('ec_style_indicator') || btn.hasClass('ec_float_style_btn')) {
@@ -355,24 +373,29 @@ export function bindEventHandlers() {
         saveSettings();
     });
 
-    jQuery(document).on('click', '#discord_reset_system_prompt_chat_stream', function () {
+    // RESET SYSTEM PROMPTS
+    jQuery(document).on('click', '#discord_reset_system_prompt_chat_stream', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         showConfirmModal('Reset Chat Stream prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptChatStream;
             state.settings.systemPromptChatStream = defaultValue;
-            jQuery('#discord_system_prompt_chat_stream').val(defaultValue);
+            jQuery('#discord_system_prompt_chat_stream').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Chat Stream prompt reset to default');
-        });
+        }, 'Reset');
     });
 
-    jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function () {
+    jQuery(document).on('click', '#discord_reset_system_prompt_assistant', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         showConfirmModal('Reset Assistant prompt to default?', () => {
             const defaultValue = defaultSettings.systemPromptAssistant;
             state.settings.systemPromptAssistant = defaultValue;
-            jQuery('#discord_system_prompt_assistant').val(defaultValue);
+            jQuery('#discord_system_prompt_assistant').val(defaultValue).trigger('input');
             saveSettings();
             if (typeof toastr !== 'undefined') toastr.success('Assistant prompt reset to default');
-        });
+        }, 'Reset');
     });
 
     jQuery(document).on('click', () => jQuery('.ec_popup_menu').hide());

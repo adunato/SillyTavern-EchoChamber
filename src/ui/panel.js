@@ -154,7 +154,7 @@ export function openPopoutWindow() {
     });
     jQuery('#ec_float_dock_btn').on('click', closePopoutWindow);
     jQuery('.ec_float_refresh').on('click', () => { jQuery('.ec_float_refresh i').addClass('fa-spin'); setTimeout(() => jQuery('.ec_float_refresh i').removeClass('fa-spin'), 1000); generateDiscordChat(true); });
-    jQuery('.ec_float_clear').on('click', () => { showConfirmModal('Clear chat?').then(c => { if (c) { setDiscordText(''); clearCachedCommentary(); } }); });
+    jQuery('.ec_float_clear').on('click', () => { showConfirmModal('Clear chat?', null, 'Clear').then(c => { if (c) { setDiscordText(''); clearCachedCommentary(); } }); });
     jQuery('.ec_float_settings').on('click', openSettingsModal);
     if (state.settings.chatEnabled) {
         const hfs = async () => { if (state.isGenerating) { cancelGenerationContext(); return; } const i = jQuery('#ec_float_reply_field'); const t = i.val().trim(); if (!t) return; i.val(''); const m = formatMessage(state.settings.chatUsername || 'Streamer (You)', t, true); const c = jQuery('#ec_float_content .discord_container'); if (c.length) c.prepend(m); else jQuery('#ec_float_content').html(`<div class="discord_container">${m}</div>`); jQuery('#ec_float_content').scrollTop(0); await generateSingleReply(t, t.match(/^@([^\s]+)/)?.[1]); };
